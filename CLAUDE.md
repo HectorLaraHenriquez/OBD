@@ -15,7 +15,7 @@ App web propia para leer datos OBD2 del auto con un adaptador Bluetooth barato, 
   - Probado y funcionando con Car Scanner (modo Bluetooth 4.0 LE) antes de este dashboard.
   - Acepta una sola conexión a la vez: cerrar Car Scanner antes de usar el dashboard.
 - **Teléfono:** Android, Chrome.
-- **Hosting:** GitHub Pages, repo `HectorLaraHenriquez/obd`, URL `https://hectorlarahenriquez.github.io/obd/`.
+- **Hosting:** GitHub Pages, repo `HectorLaraHenriquez/OBD`, URL `https://hectorlarahenriquez.github.io/OBD/`.
 
 ## Por qué web y no app nativa
 
