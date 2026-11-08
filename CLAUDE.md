@@ -33,7 +33,7 @@ Chrome en Android soporta **Web Bluetooth** solo para BLE, lo que calza con el i
 ### Transporte
 - `class Ble`: `navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:SVC})`, recorre servicios y elige el primero que tenga una característica notify/indicate (RX) y otra write/writeWithoutResponse (TX). Escribe en trozos de 20 bytes.
 - UUIDs de servicio probados en `SVC`: `fff0`, `ffe0`, `18f0`, `e7810a71-73ae-499d-8c15-faa9aef0c3f2` (Vgate), `ae30`, `beef`. **Pendiente confirmar cuál usa realmente el iCar2** (ver Consola / logs).
-- `class Sim`: simulador que responde como un ELM327 en un MG GT (protocolo CAN, PIDs típicos, un código P0133 de ejemplo, VIN falso `DEMO0MGGT15MT0001`). La página arranca en modo demo.
+- `class Sim`: simulador que responde como un ELM327 en un MG GT (protocolo CAN, PIDs típicos, un código P0133 de ejemplo, VIN falso `DEMO0MGGT15MT0001`). La página arranca desconectada; el demo es opcional (botón "Ver demo"). Si falla la conexión se muestra un diagnóstico (log BLE) con botón para copiarlo.
 
 ### Capa ELM327 (`elm`)
 - Cola de comandos con lock (un comando a la vez); respuesta completa al llegar `>`. Timeout por comando.

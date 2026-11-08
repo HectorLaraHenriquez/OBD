@@ -347,20 +347,31 @@ function fmt(id,v){if(v==null||isNaN(v))return '—';const p=info(id);const f=p.
 /* ---------- Transporte BLE ---------- */
 const SVC=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805f9b34fb','000018f0-0000-1000-8000-00805f9b34fb','e7810a71-73ae-499d-8c15-faa9aef0c3f2','0000ae30-0000-1000-8000-00805f9b34fb','0000beef-0000-1000-8000-00805f9b34fb'];
 class Ble{
-  async open(onData,onDrop){
+  async open(onData,onDrop,log=()=>{}){
+    log('Abriendo selector Bluetooth…');
     this.dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SVC});
-    this.dev.addEventListener('gattserverdisconnected',onDrop);
-    const srv=await this.dev.gatt.connect();
+    log('Dispositivo elegido: '+(this.dev.name||'(sin nombre)')+' · id '+this.dev.id);
+    this.dev.addEventListener('gattserverdisconnected',()=>{log('Evento gattserverdisconnected: el adaptador cortó la conexión');onDrop()});
+    let srv;
+    for(let i=1;i<=3;i++){
+      try{log('Conectando GATT, intento '+i+'…');srv=await this.dev.gatt.connect();break}
+      catch(e){log('  falló: '+e.name+': '+e.message);if(i===3)throw e;await sleep(800)}
+    }
+    log('GATT conectado. Buscando servicios…');
+    await sleep(300);
     const svcs=await srv.getPrimaryServices();
+    log('Servicios encontrados: '+svcs.length);
     for(const s of svcs){
-      let ch;try{ch=await s.getCharacteristics()}catch{continue}
+      let ch;try{ch=await s.getCharacteristics()}catch(e){log('  '+s.uuid+': no se pudieron leer las características ('+e.message+')');continue}
+      log('  Servicio '+s.uuid);
       let rx=null,tx=null;
-      for(const c of ch){const p=c.properties;if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
+      for(const c of ch){const p=c.properties;log('    característica '+c.uuid+' ['+['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]).join('+')+']');if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
       if(rx&&tx){this.rx=rx;this.tx=tx;this.svc=s.uuid;break}
     }
-    if(!this.rx)throw new Error('No encontré el canal de datos del adaptador. Revisa que sea la versión Bluetooth 4.0.');
+    if(!this.rx)throw new Error('No encontré el canal de datos del adaptador (ningún servicio con notificación y escritura).');
+    log('Canal elegido: servicio '+this.svc+' · RX '+this.rx.uuid+' · TX '+this.tx.uuid);
     const dec=new TextDecoder();
-    await this.rx.startNotifications();
+    await this.rx.startNotifications();log('Notificaciones activadas');
     this.rx.addEventListener('characteristicvaluechanged',e=>onData(dec.decode(e.target.value)));
     this.name=this.dev.name||'Adaptador';
   }
@@ -461,6 +472,7 @@ class Sim{
 /* ---------- ELM327 ---------- */
 const elm={t:null,buf:'',waiter:null,lock:Promise.resolve(),
   onData(s){this.buf+=s;if(this.buf.includes('>')&&this.waiter){const r=this.buf;this.buf='';const w=this.waiter;this.waiter=null;w(r)}},
+  abort(){const w=this.waiter;this.waiter=null;this.buf='';if(w)w('')},
   send(cmd,ms=3000){
     const run=async()=>{
       if(!this.t)throw new Error('Sin conexión');
@@ -525,13 +537,18 @@ async function connectWith(transport,mode){
   if(elm.t)elm.t.close();
   S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;S.rep={};S.snap={};resetTrip();
   setPill('busy','Conectando…');
-  await transport.open(s=>elm.onData(s),onDrop);
+  S.dropped=false;S.diag=[];dlog('Modo '+mode);await transport.open(s=>elm.onData(s),onDrop,dlog);
   elm.t=transport;
-  const step=async(c,ms)=>{logLine('tx','> '+c);try{const r=await elm.send(c,ms);logLine('',r);return r}catch(e){logLine('er',e.message);return ''}};
-  await step('ATZ',5000);await sleep(mode==='real'?800:0);
+  const step=async(c,ms)=>{dlog('> '+c,'tx');try{const r=await elm.send(c,ms);dlog(r||'(vacío)');return r}catch(e){dlog(e.message,'er');return ''}};
+  const dropErr=()=>new Error('El adaptador cortó la conexión Bluetooth durante la inicialización.');let warn='';
+  let z=await step('ATZ',5000);if(S.dropped)throw dropErr();
+  if(!z&&mode==='real'){await sleep(500);z=await step('ATZ',5000);if(S.dropped)throw dropErr()}
+  if(!z&&mode==='real')throw new Error('El adaptador conectó por Bluetooth pero no responde a ATZ: canal equivocado, adaptador dormido o en uso por otra app.');
+  await sleep(mode==='real'?800:0);
   for(const c of ['ATE0','ATL0','ATS0','ATH0','ATSP0'])await step(c,2000);
   setPill('busy','Buscando protocolo…');
-  await step('0100',12000);
+  const r0=await step('0100',12000);if(S.dropped)throw dropErr();
+  if(mode==='real'&&!/41\s*00/.test(r0))warn='<b>Adaptador conectado, pero el auto no respondió ('+esc(r0||'sin respuesta')+').</b> Revisa que esté en contacto o con el motor andando y vuelve a conectar. Puedes usar la Consola para probar comandos.';
   const dpn=(await step('ATDPN',2000)).replace(/[^0-9A-F]/gi,'');
   const pn=parseInt(dpn.slice(-1),16);S.isCAN=isNaN(pn)?true:pn>=6;
   S.proto=(await step('ATDP',2000))||'—';
@@ -539,24 +556,42 @@ async function connectWith(transport,mode){
   S.vin=parseVIN(await step('0902',4000));
   await readMonitors();
   if(!S.watch)S.watch=DEF_WATCH.slice();
+  if(S.dropped)throw dropErr();
   setPill(mode==='demo'?'demo':'ok',mode==='demo'?'Demo':'Conectado · '+transport.name);
   $('#bConnect').hidden=mode==='real';$('#bDisc').hidden=mode!=='real';$('#bDemo').hidden=mode==='demo';
-  if(mode==='real')banner('');
+  if(mode==='real')banner(warn,!!warn);
   renderStrip();renderSup();buildCards();startPoll();
 }
-function onDrop(){if(S.mode!=='real')return;stopPoll();elm.t=null;setPill('','Desconectado');$('#bConnect').hidden=false;$('#bDisc').hidden=true;$('#bDemo').hidden=false;banner('<b>Se perdió la conexión.</b> Revisa que el auto siga en contacto y vuelve a conectar.',true)}
+const esc=x=>String(x).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function dlog(m,cls){(S.diag=S.diag||[]).push(new Date().toISOString().slice(11,19)+' '+m);logLine(cls||'',m)}
+function diagBanner(head,hint){banner('<b>'+esc(head)+'</b> '+esc(hint)+'<pre class="log" style="height:auto;max-height:220px;margin:10px 0 8px;font-size:11px">'+esc((S.diag||[]).slice(-30).join('\n'))+'</pre><button class="btn" id="bCopyDiag" type="button">Copiar diagnóstico</button>',true)}
+$('#banner').addEventListener('click',e=>{if(e.target.id==='bCopyDiag'){const b=e.target;navigator.clipboard.writeText((S.diag||[]).join('\n')).then(()=>b.textContent='Copiado',()=>b.textContent='No se pudo copiar')}});
+function toIdle(){stopPoll();if(elm.t){try{elm.t.close()}catch{}}elm.t=null;S.mode='x';setPill('','Desconectado');$('#bConnect').hidden=false;$('#bDisc').hidden=true;$('#bDemo').hidden=false}
+function onDrop(){
+  if(S.mode!=='real')return;
+  S.dropped=true;elm.abort();
+  if(!elm.t)return;
+  dlog('Conexión perdida con la app ya conectada','er');
+  toIdle();diagBanner('Se perdió la conexión.','Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');
+}
 
 $('#bConnect').onclick=async()=>{
   if(!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
-  try{await connectWith(new Ble(),'real')}
+  const tr=new Ble();
+  try{await connectWith(tr,'real')}
   catch(e){
-    if(e.name==='NotFoundError'){setPill(S.mode==='demo'?'demo':'',S.mode==='demo'?'Demo':'Desconectado');return}
-    const sec=e.name==='SecurityError'||/permission|policy|allowed/i.test(e.message);
-    banner(sec?'<b>Bluetooth bloqueado aquí.</b> Esta vista no permite Bluetooth. Abre la copia alojada de la página en Chrome para Android.':'<b>No se pudo conectar.</b> '+e.message,true);
-    startDemo();
+    dlog('ERROR '+e.name+': '+e.message,'er');
+    try{tr.close()}catch{}
+    toIdle();
+    if(e.name==='NotFoundError'&&/chooser|cancel/i.test(e.message)){banner('Conexión cancelada. Toca <i>Conectar adaptador</i> para reintentar.');return}
+    let hint=e.message;
+    if(e.name==='SecurityError'||/permission|policy|allowed/i.test(e.message))hint='Esta vista no permite Bluetooth. Abre la página en Chrome para Android, con ubicación activada.';
+    else if(e.name==='NetworkError'||/GATT/i.test(e.message))hint='No se pudo abrir el enlace con el adaptador. Causas típicas: otra app conectada (cierra Car Scanner), adaptador dormido (desenchúfalo y vuelve a enchufarlo con contacto dado) o demasiado lejos.';
+    else if(/No Services|No encontré/i.test(e.message))hint='El adaptador no expone un canal de datos que esta app reconozca. Copia el diagnóstico y envíamelo: trae los servicios detectados.';
+    diagBanner('No se pudo conectar ('+e.name+').',hint);
   }
 };
-$('#bDisc').onclick=()=>{S.mode='x';stopPoll();if(elm.t)elm.t.close();elm.t=null;startDemo()};
+$('#bDisc').onclick=()=>{toIdle();banner('Desconectado. Toca <i>Conectar adaptador</i> para volver a conectar.')};
 $('#bDemo').onclick=startDemo;
 function startDemo(){banner('<b>Modo demostración.</b> Los valores son simulados. Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>.');connectWith(new Sim(),'demo')}
 
@@ -936,7 +971,10 @@ $('#bRepDl').onclick=()=>{
 };
 
 window.addEventListener('resize',()=>renderCards());
-startDemo();
+S.watch=S.watch||DEF_WATCH.slice();
+$('#cards').innerHTML='<p class="muted">Conecta el adaptador para ver datos en vivo.</p>';
+toIdle();
+banner('Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>. <i>Ver demo</i> muestra datos simulados.');
 </script>
 </body>
 </html>
