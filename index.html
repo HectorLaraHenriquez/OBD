@@ -345,28 +345,41 @@ function info(id){return VIRT[id]||PIDS[id]}
 function fmt(id,v){if(v==null||isNaN(v))return '—';const p=info(id);const f=p.f!=null?p.f:(Math.abs(v)<10?1:0);return Number(v).toFixed(f)}
 
 /* ---------- Transporte BLE ---------- */
-const SVC=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805f9b34fb','000018f0-0000-1000-8000-00805f9b34fb','e7810a71-73ae-499d-8c15-faa9aef0c3f2','0000ae30-0000-1000-8000-00805f9b34fb','0000beef-0000-1000-8000-00805f9b34fb'];
+const SVC=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805f9b34fb','000018f0-0000-1000-8000-00805f9b34fb','e7810a71-73ae-499d-8c15-faa9aef0c3f2','0000ae30-0000-1000-8000-00805f9b34fb','0000beef-0000-1000-8000-00805f9b34fb','6e400001-b5a0-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455'];
 class Ble{
   async open(onData,onDrop,log=()=>{}){
     log('Abriendo selector Bluetooth…');
     this.dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SVC});
     log('Dispositivo elegido: '+(this.dev.name||'(sin nombre)')+' · id '+this.dev.id);
     this.dev.addEventListener('gattserverdisconnected',()=>{log('Evento gattserverdisconnected: el adaptador cortó la conexión');onDrop()});
-    let srv;
-    for(let i=1;i<=3;i++){
-      try{log('Conectando GATT, intento '+i+'…');srv=await this.dev.gatt.connect();break}
-      catch(e){log('  falló: '+e.name+': '+e.message);if(i===3)throw e;await sleep(800)}
-    }
-    log('GATT conectado. Buscando servicios…');
-    await sleep(300);
-    const svcs=await srv.getPrimaryServices();
-    log('Servicios encontrados: '+svcs.length);
-    for(const s of svcs){
-      let ch;try{ch=await s.getCharacteristics()}catch(e){log('  '+s.uuid+': no se pudieron leer las características ('+e.message+')');continue}
-      log('  Servicio '+s.uuid);
-      let rx=null,tx=null;
-      for(const c of ch){const p=c.properties;log('    característica '+c.uuid+' ['+['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]).join('+')+']');if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
-      if(rx&&tx){this.rx=rx;this.tx=tx;this.svc=s.uuid;break}
+    const g=this.dev.gatt;
+    for(let a=1;a<=3&&!this.rx;a++){
+      try{
+        log('Intento '+a+'/3: conectando GATT…');
+        if(!g.connected)await g.connect();
+        log('GATT conectado. Esperando 600 ms y consultando servicios conocidos…');
+        await sleep(600);
+        for(const u of SVC){
+          let s;
+          try{s=await g.getPrimaryService(u)}
+          catch(e){if(!g.connected)throw e;log('  '+u.slice(0,8)+': no presente');continue}
+          log('  Servicio '+u+' ENCONTRADO');
+          const ch=await s.getCharacteristics();
+          let rx=null,tx=null;
+          for(const c of ch){const p=c.properties;log('    característica '+c.uuid+' ['+['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]).join('+')+']');if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
+          if(rx&&tx){this.rx=rx;this.tx=tx;this.svc=u;break}
+        }
+        if(!this.rx){
+          log('Ningún servicio conocido tiene canal de datos. Listando todos los visibles…');
+          try{const all=await g.getPrimaryServices();log('  Servicios visibles: '+(all.map(x=>x.uuid).join(', ')||'ninguno'))}catch(e){log('  '+e.name+': '+e.message)}
+          break;
+        }
+      }catch(e){
+        log('  falló: '+e.name+': '+e.message);
+        if(a===3)throw e;
+        try{g.disconnect()}catch{}
+        await sleep(1500);
+      }
     }
     if(!this.rx)throw new Error('No encontré el canal de datos del adaptador (ningún servicio con notificación y escritura).');
     log('Canal elegido: servicio '+this.svc+' · RX '+this.rx.uuid+' · TX '+this.tx.uuid);
@@ -537,7 +550,7 @@ async function connectWith(transport,mode){
   if(elm.t)elm.t.close();
   S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;S.rep={};S.snap={};resetTrip();
   setPill('busy','Conectando…');
-  S.dropped=false;S.diag=[];dlog('Modo '+mode);await transport.open(s=>elm.onData(s),onDrop,dlog);
+  S.dropped=false;S.diag=[];dlog('Modo '+mode);await transport.open(s=>elm.onData(s),onDrop,dlog);S.dropped=false;
   elm.t=transport;
   const step=async(c,ms)=>{dlog('> '+c,'tx');try{const r=await elm.send(c,ms);dlog(r||'(vacío)');return r}catch(e){dlog(e.message,'er');return ''}};
   const dropErr=()=>new Error('El adaptador cortó la conexión Bluetooth durante la inicialización.');let warn='';
