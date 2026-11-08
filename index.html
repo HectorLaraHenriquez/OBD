@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Tablero OBD MG GT</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="theme-color" content="#11151b">
@@ -114,10 +119,17 @@ textarea{min-height:200px;resize:vertical}
 .log .tx{color:var(--accent)} .log .er{color:var(--bad)}
 .cmd{display:flex;gap:8px}
 .cmd input{flex:1;min-width:0;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:14px;text-transform:uppercase}
+.kv{display:grid;grid-template-columns:minmax(110px,38%) 1fr;border-top:1px solid var(--line);font-size:13px}
+.kv>span{padding:6px 0;border-bottom:1px solid var(--line);min-width:0;overflow-wrap:anywhere}
+.kv>span:nth-child(odd){color:var(--muted);padding-right:10px}
+.kv>span:nth-child(even){font-family:var(--mono)}
+.view.stack:not([hidden]){display:grid;gap:14px}
 .foot{color:var(--muted);font-size:12px;padding-block:0 24px}
 @media (max-width:420px){ .card .val{font-size:34px} .li{grid-template-columns:44px 1fr auto} .li .sw{grid-column:2/4;justify-self:start} }
 @media (prefers-reduced-motion: reduce){ *{animation:none!important} }
 </style>
+</head>
+<body>
 
 <header class="top">
   <div class="wrap">
@@ -135,6 +147,7 @@ textarea{min-height:200px;resize:vertical}
     <button class="tab" role="tab" data-v="live" aria-selected="true">En vivo</button>
     <button class="tab" role="tab" data-v="datos" aria-selected="false">Datos disponibles</button>
     <button class="tab" role="tab" data-v="fallas" aria-selected="false">Fallas</button>
+    <button class="tab" role="tab" data-v="scan" aria-selected="false">Escáner</button>
     <button class="tab" role="tab" data-v="registro" aria-selected="false">Registro</button>
     <button class="tab" role="tab" data-v="consola" aria-selected="false">Consola</button>
   </div>
@@ -150,6 +163,18 @@ textarea{min-height:200px;resize:vertical}
       <div><div class="lbl">Protocolo</div><div class="v" id="sProto">—</div></div>
       <div><div class="lbl">Check engine</div><div class="v" id="sMil">—</div></div>
       <div><div class="lbl">Fallas guardadas</div><div class="v" id="sDtc">—</div></div>
+    </div>
+    <div class="strip">
+      <div><div class="lbl">Distancia</div><div class="v" id="tDist">—</div></div>
+      <div><div class="lbl">Tiempo en marcha</div><div class="v" id="tTime">—</div></div>
+      <div><div class="lbl">Ralentí</div><div class="v" id="tIdle">—</div></div>
+      <div><div class="lbl">Combustible (est.)</div><div class="v" id="tFuel">—</div></div>
+      <div><div class="lbl">Promedio</div><div class="v" id="tAvg">—</div></div>
+      <div><div class="lbl">Costo</div><div class="v" id="tCost">—</div></div>
+    </div>
+    <div class="row">
+      <label class="muted" style="font-size:13px">Precio bencina $/L <input id="fuelPrice" type="number" min="0" step="1" style="width:84px;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 6px"></label>
+      <button class="btn" id="bTripReset">Reiniciar viaje</button>
     </div>
     <div class="row">
       <button class="btn" id="bPoll">Pausar lectura</button>
@@ -169,7 +194,7 @@ textarea{min-height:200px;resize:vertical}
     </div>
   </section>
 
-  <section id="v-fallas" class="view" hidden>
+  <section id="v-fallas" class="view stack" hidden>
     <div class="panel">
       <div class="row"><h2 style="flex:1">Códigos de falla</h2><button class="btn primary" id="bDtc">Leer fallas</button></div>
       <div id="dtcOut"><p class="muted">Lee códigos guardados, pendientes y permanentes del motor. ABS y airbag no están disponibles con este adaptador.</p></div>
@@ -187,7 +212,24 @@ textarea{min-height:200px;resize:vertical}
     </div>
   </section>
 
-  <section id="v-registro" class="view" hidden>
+  <section id="v-scan" class="view stack" hidden>
+    <div class="panel">
+      <h2>Escáner completo</h2>
+      <p class="muted">Lee todo lo que el auto entrega por OBD2 estándar y por diagnóstico UDS de lectura. Con contacto dado y auto detenido. Solo lectura: no borra ni escribe nada.</p>
+      <div class="row"><button class="btn primary" id="bScan">Escaneo completo</button><button class="btn" id="bScanStop" hidden>Cancelar</button><button class="btn" id="bRepDl">Descargar informe</button><span class="grow" id="scanSt"></span></div>
+    </div>
+    <div class="panel"><div class="row"><h2 style="flex:1">Adaptador</h2><button class="btn" id="bAdp">Leer</button></div><div id="oAdp"><p class="muted">Sin datos aún.</p></div></div>
+    <div class="panel"><div class="row"><h2 style="flex:1">Identificación del auto</h2><button class="btn" id="bId">Leer</button></div><div id="oId"><p class="muted">VIN, ID de calibración, CVN y nombre de la ECU (modo 09).</p></div></div>
+    <div class="panel"><div class="row"><h2 style="flex:1">Datos congelados</h2><button class="btn" id="bFF">Leer</button></div><div id="oFF"><p class="muted">Condiciones del motor en el instante en que se registró la última falla (modo 02).</p></div></div>
+    <div class="panel"><div class="row"><h2 style="flex:1">Pruebas de monitoreo</h2><button class="btn" id="bM06">Leer</button></div><div id="oM06"><p class="muted">Resultados de las autopruebas de la ECU (catalizador, sensores O2, fallos de encendido…) con su valor y límites (modo 06).</p></div></div>
+    <div class="panel">
+      <div class="row"><h2 style="flex:1">Módulos del auto</h2><button class="btn" id="bModQ">Escaneo rápido</button><button class="btn" id="bModF">Ampliado</button></div>
+      <p class="muted">Busca otros computadores (ABS, airbag, carrocería…) y lee su identificación y fallas por UDS. Las direcciones del MG no están documentadas: el rápido prueba 7E0–7E7 y 7A0–7BF; el ampliado, 700–7DE (más lento).</p>
+      <div id="oMods"><p class="muted">Sin datos aún.</p></div>
+    </div>
+  </section>
+
+  <section id="v-registro" class="view stack" hidden>
     <div class="panel">
       <h2>Registro de viaje</h2>
       <div class="row">
@@ -269,13 +311,34 @@ const PIDS={
  0x4E:{n:'Tiempo desde borrado de códigos',c:'Diagnóstico',u:'min',dv:AB,f:0},
  0x51:{n:'Tipo de combustible',c:'Combustible',t:a=>({1:'Gasolina',2:'Metanol',3:'Etanol',4:'Diésel',5:'GLP',6:'GNC'}[a]||'Código '+a)},
  0x5C:{n:'Temperatura aceite motor',c:'Temperaturas',u:'°C',d:a=>a-40,f:0},
- 0x5E:{n:'Consumo de combustible (ECU)',c:'Combustible',u:'L/h',dv:(a,b)=>AB(a,b)/20}
+ 0x5E:{n:'Consumo de combustible (ECU)',c:'Combustible',u:'L/h',dv:(a,b)=>AB(a,b)/20},
+ 0x08:{n:'Ajuste combustible corto plazo B2',c:'Combustible',u:'%',d:a=>(a-128)/1.28},
+ 0x09:{n:'Ajuste combustible largo plazo B2',c:'Combustible',u:'%',d:a=>(a-128)/1.28},
+ 0x12:{n:'Aire secundario',c:'Combustible',t:a=>({1:'Aguas arriba',2:'Aguas abajo del catalizador',4:'Atmósfera / apagado',8:'Bomba de diagnóstico'}[a]||'Código '+a)},
+ 0x22:{n:'Presión riel combustible (rel. colector)',c:'Combustible',u:'kPa',dv:(a,b)=>AB(a,b)*0.079,f:0},
+ 0x23:{n:'Presión riel combustible (inyección directa)',c:'Combustible',u:'kPa',dv:(a,b)=>AB(a,b)*10,f:0},
+ 0x24:{n:'Lambda O2 B1S1 (banda ancha)',c:'Sensores',u:'λ',dv:(a,b)=>AB(a,b)*2/65536,f:3},
+ 0x25:{n:'Lambda O2 B1S2 (banda ancha)',c:'Sensores',u:'λ',dv:(a,b)=>AB(a,b)*2/65536,f:3},
+ 0x2D:{n:'Error EGR',c:'Combustible',u:'%',d:a=>(a-128)/1.28},
+ 0x32:{n:'Presión de vapor EVAP',c:'Combustible',u:'Pa',dv:(a,b)=>{const v=AB(a,b);return (v>32767?v-65536:v)/4},f:0},
+ 0x3E:{n:'Temperatura catalizador B1S2',c:'Temperaturas',u:'°C',dv:(a,b)=>AB(a,b)/10-40,f:0},
+ 0x52:{n:'Etanol en combustible',c:'Combustible',u:'%',d:a=>a/2.55},
+ 0x53:{n:'Presión absoluta vapor EVAP',c:'Combustible',u:'kPa',dv:(a,b)=>AB(a,b)/200,f:2},
+ 0x55:{n:'Ajuste O2 secundario corto plazo B1',c:'Sensores',u:'%',d:a=>(a-128)/1.28},
+ 0x56:{n:'Ajuste O2 secundario largo plazo B1',c:'Sensores',u:'%',d:a=>(a-128)/1.28},
+ 0x59:{n:'Presión absoluta riel combustible',c:'Combustible',u:'kPa',dv:(a,b)=>AB(a,b)*10,f:0},
+ 0x5A:{n:'Pedal acelerador relativo',c:'Motor',u:'%',d:a=>a/2.55},
+ 0x5D:{n:'Sincronización de inyección',c:'Combustible',u:'°',dv:(a,b)=>(AB(a,b)-26880)/128,f:1},
+ 0x61:{n:'Torque demandado por el conductor',c:'Motor',u:'%',d:a=>a-125,f:0},
+ 0x62:{n:'Torque real del motor',c:'Motor',u:'%',d:a=>a-125,f:0},
+ 0x63:{n:'Torque de referencia del motor',c:'Motor',u:'Nm',dv:AB,f:0}
 };
 const SKIP=new Set([0x00,0x01,0x20,0x40,0x41,0x60,0x80,0xA0,0xC0]);
 const VIRT={
  BAT:{n:'Batería (adaptador)',u:'V',f:1},
  LPH:{n:'Consumo',u:'L/h',f:1,v:1},
- KML:{n:'Rendimiento',u:'km/L',f:1,v:1}
+ KML:{n:'Rendimiento',u:'km/L',f:1,v:1},
+ ACC:{n:'Aceleración',u:'m/s²',f:1,v:1}
 };
 function decode(pid,b){const p=PIDS[pid];if(!p)return null;if(p.t)return p.t(b[0]);if(p.dv)return p.dv(b[0],b[1]||0);return p.d(b[0])}
 function info(id){return VIRT[id]||PIDS[id]}
@@ -284,20 +347,31 @@ function fmt(id,v){if(v==null||isNaN(v))return '—';const p=info(id);const f=p.
 /* ---------- Transporte BLE ---------- */
 const SVC=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805f9b34fb','000018f0-0000-1000-8000-00805f9b34fb','e7810a71-73ae-499d-8c15-faa9aef0c3f2','0000ae30-0000-1000-8000-00805f9b34fb','0000beef-0000-1000-8000-00805f9b34fb'];
 class Ble{
-  async open(onData,onDrop){
+  async open(onData,onDrop,log=()=>{}){
+    log('Abriendo selector Bluetooth…');
     this.dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SVC});
-    this.dev.addEventListener('gattserverdisconnected',onDrop);
-    const srv=await this.dev.gatt.connect();
-    const svcs=await srv.getPrimaryServices();
-    for(const s of svcs){
-      let ch;try{ch=await s.getCharacteristics()}catch{continue}
-      let rx=null,tx=null;
-      for(const c of ch){const p=c.properties;if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
-      if(rx&&tx){this.rx=rx;this.tx=tx;break}
+    log('Dispositivo elegido: '+(this.dev.name||'(sin nombre)')+' · id '+this.dev.id);
+    this.dev.addEventListener('gattserverdisconnected',()=>{log('Evento gattserverdisconnected: el adaptador cortó la conexión');onDrop()});
+    let srv;
+    for(let i=1;i<=3;i++){
+      try{log('Conectando GATT, intento '+i+'…');srv=await this.dev.gatt.connect();break}
+      catch(e){log('  falló: '+e.name+': '+e.message);if(i===3)throw e;await sleep(800)}
     }
-    if(!this.rx)throw new Error('No encontré el canal de datos del adaptador. Revisa que sea la versión Bluetooth 4.0.');
+    log('GATT conectado. Buscando servicios…');
+    await sleep(300);
+    const svcs=await srv.getPrimaryServices();
+    log('Servicios encontrados: '+svcs.length);
+    for(const s of svcs){
+      let ch;try{ch=await s.getCharacteristics()}catch(e){log('  '+s.uuid+': no se pudieron leer las características ('+e.message+')');continue}
+      log('  Servicio '+s.uuid);
+      let rx=null,tx=null;
+      for(const c of ch){const p=c.properties;log('    característica '+c.uuid+' ['+['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]).join('+')+']');if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
+      if(rx&&tx){this.rx=rx;this.tx=tx;this.svc=s.uuid;break}
+    }
+    if(!this.rx)throw new Error('No encontré el canal de datos del adaptador (ningún servicio con notificación y escritura).');
+    log('Canal elegido: servicio '+this.svc+' · RX '+this.rx.uuid+' · TX '+this.tx.uuid);
     const dec=new TextDecoder();
-    await this.rx.startNotifications();
+    await this.rx.startNotifications();log('Notificaciones activadas');
     this.rx.addEventListener('characteristicvaluechanged',e=>onData(dec.decode(e.target.value)));
     this.name=this.dev.name||'Adaptador';
   }
@@ -307,19 +381,35 @@ class Ble{
 
 /* ---------- Simulador ---------- */
 class Sim{
-  constructor(){this.t0=Date.now();this.name='Demo';this.sup=new Set([0x01,0x03,0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0E,0x0F,0x11,0x13,0x14,0x15,0x1C,0x1F,0x20,0x21,0x2E,0x30,0x31,0x33,0x3C,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x49,0x4A,0x4C])}
+  constructor(){this.t0=Date.now();this.name='Demo';this.h=0;this.hdr='7DF';this.sup=new Set([0x01,0x03,0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0E,0x0F,0x11,0x13,0x14,0x15,0x1C,0x1F,0x20,0x21,0x2E,0x30,0x31,0x33,0x3C,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x49,0x4A,0x4C])}
   async open(onData){this.onData=onData}
   async write(s){const r=this.resp(s.trim().toUpperCase());setTimeout(()=>this.onData&&this.onData(r+'\r\r>'),40+Math.random()*40)}
   close(){this.onData=null}
   resp(c){
     const t=(Date.now()-this.t0)/1000;
     if(c.startsWith('AT')){
-      if(c==='ATZ'||c==='ATI')return 'ELM327 v1.5';
+      if(c==='ATH1'||c==='ATH0'){this.h=c==='ATH1';return 'OK'}
+      if(c.startsWith('ATSH')){this.hdr=c.slice(4);return 'OK'}
+      if(c==='AT@1')return 'OBDII to RS232 Interpreter';
+      if(c==='ATIGN')return 'ON';
+      if(c==='ATZ'||c==='ATI'){if(c==='ATZ'){this.h=0;this.hdr='7DF'}return 'ELM327 v1.5'}
       if(c==='ATRV')return (14.1+0.15*Math.sin(t/3)).toFixed(1)+'V';
       if(c==='ATDPN')return 'A6';
       if(c==='ATDP')return 'AUTO, ISO 15765-4 (CAN 11/500)';
       return 'OK';
     }
+    const ah=(x,n)=>[...x.padEnd(n,'\0')].map(q=>hx(q.charCodeAt(0))).join('');
+    if(c==='3E00')return ['7E0','7A0'].includes(this.hdr)?(this.h?hexN(parseInt(this.hdr,16)+8)+'027E00':'7E00'):'NO DATA';
+    if(/^22F1[0-9A-F]{2}$/.test(c)){const M={'7E0':{F190:'DEMO0MGGT15MT0001',F187:'ECM-DEMO-0001',F189:'V1.2.3',F18C:'SN0001'},'7A0':{F187:'BCM-DEMO-77',F189:'V0.9'}}[this.hdr];if(!M)return 'NO DATA';const v=M[c.slice(2)];return v?'62'+c.slice(2)+ah(v,0):'7F2231'}
+    if(c==='1902FF')return this.hdr==='7E0'?'5902FF01330009':this.hdr==='7A0'?'5902FF':'NO DATA';
+    if(c==='020200')return '4202000133';
+    if(/^02[0-9A-F]{2}00$/.test(c)){const pid=parseInt(c.slice(2,4),16);if(![0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0F,0x11].includes(pid))return 'NO DATA';return '42'+hx(pid)+'00'+this.bytes(pid,t).map(x=>hx(clamp(x))).join('')}
+    if(c==='0600')return '4600C0000000';
+    if(/^06[0-9A-F]{2}$/.test(c)){const m=parseInt(c.slice(2),16);if(m%32===0)return '46'+hx(m)+'00000000';if(m===1)return '46018D0B012000000300'+'8E0B005000000200';if(m===2)return '4602810B0400000003E8';return 'NO DATA'}
+    if(c==='0900')return '490054400000';
+    if(c==='0904')return '490402'+ah('MGGT15CAL0000001',16)+ah('MGGT15CAL0000002',16);
+    if(c==='0906')return '490601A1B2C3D4';
+    if(c==='090A')return '490A01'+ah('ECM-ENGINE',20);
     if(c==='03')return '43010133';
     if(c==='07')return '4300';
     if(c==='0A')return '4A00';
@@ -382,6 +472,7 @@ class Sim{
 /* ---------- ELM327 ---------- */
 const elm={t:null,buf:'',waiter:null,lock:Promise.resolve(),
   onData(s){this.buf+=s;if(this.buf.includes('>')&&this.waiter){const r=this.buf;this.buf='';const w=this.waiter;this.waiter=null;w(r)}},
+  abort(){const w=this.waiter;this.waiter=null;this.buf='';if(w)w('')},
   send(cmd,ms=3000){
     const run=async()=>{
       if(!this.t)throw new Error('Sin conexión');
@@ -413,7 +504,7 @@ function parseVIN(r){const ls_=lines(r);let s=ls_.filter(l=>/^[0-9A-F]:/.test(l)
 
 /* ---------- Estado ---------- */
 const DEF_WATCH=[0x0C,0x0D,0x05,0x04,0x11,0x0B,0x10,0x0F,0x06,0x07,0x0E,'BAT','LPH','KML'];
-const S={mode:'demo',sup:new Set(),isCAN:true,proto:'—',vin:null,watch:ls.get('obd_watch',null),vals:{},hist:{},stats:{},polling:false,rec:false,rows:[],dtc:null,mon:null,reads:0,t0:Date.now()};
+const S={mode:'demo',sup:new Set(),isCAN:true,proto:'—',vin:null,watch:ls.get('obd_watch',null),vals:{},hist:{},stats:{},polling:false,rec:false,rows:[],dtc:null,mon:null,reads:0,t0:Date.now(),rep:{},snap:{},cancelScan:false,busy:false};
 
 const DTC_DB={P0100:'Circuito del sensor MAF',P0101:'Sensor MAF fuera de rango',P0105:'Circuito del sensor MAP',P0106:'Sensor MAP fuera de rango',P0107:'Sensor MAP señal baja',P0108:'Sensor MAP señal alta',P0110:'Circuito sensor temperatura de admisión',P0112:'Temperatura de admisión señal baja',P0113:'Temperatura de admisión señal alta',P0115:'Circuito sensor temperatura refrigerante',P0116:'Sensor temperatura refrigerante fuera de rango',P0117:'Temperatura refrigerante señal baja',P0118:'Temperatura refrigerante señal alta',P0120:'Circuito sensor posición mariposa',P0121:'Sensor posición mariposa fuera de rango',P0128:'Termostato: el motor no alcanza temperatura',P0130:'Circuito sensor O2 B1S1',P0131:'Sensor O2 B1S1 voltaje bajo',P0132:'Sensor O2 B1S1 voltaje alto',P0133:'Sensor O2 B1S1 respuesta lenta',P0134:'Sensor O2 B1S1 sin actividad',P0135:'Calefactor sensor O2 B1S1',P0136:'Circuito sensor O2 B1S2',P0137:'Sensor O2 B1S2 voltaje bajo',P0138:'Sensor O2 B1S2 voltaje alto',P0141:'Calefactor sensor O2 B1S2',P0171:'Mezcla demasiado pobre B1',P0172:'Mezcla demasiado rica B1',P0300:'Fallo de encendido aleatorio',P0301:'Fallo de encendido cilindro 1',P0302:'Fallo de encendido cilindro 2',P0303:'Fallo de encendido cilindro 3',P0304:'Fallo de encendido cilindro 4',P0325:'Circuito sensor de detonación',P0335:'Sensor posición cigüeñal',P0340:'Sensor posición árbol de levas',P0420:'Eficiencia del catalizador bajo el umbral',P0442:'Fuga pequeña en sistema EVAP',P0443:'Circuito válvula de purga EVAP',P0455:'Fuga grande en sistema EVAP',P0456:'Fuga muy pequeña en sistema EVAP',P0500:'Sensor de velocidad del vehículo',P0505:'Sistema de control de ralentí',P0506:'Ralentí más bajo de lo esperado',P0507:'Ralentí más alto de lo esperado',P0562:'Voltaje del sistema bajo',P0563:'Voltaje del sistema alto',P0601:'Error de memoria del computador',P0650:'Circuito de la luz check engine'};
 const SYS={'1':'Medición de aire y combustible','2':'Medición de aire y combustible (inyectores)','3':'Encendido o fallos de encendido','4':'Control de emisiones auxiliares','5':'Velocidad, ralentí y entradas auxiliares','6':'Computador y salidas','7':'Transmisión','8':'Transmisión','A':'Propulsión híbrida','B':'Propulsión híbrida','C':'Propulsión híbrida'};
@@ -444,15 +535,20 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 async function connectWith(transport,mode){
   stopPoll();await sleep(80);
   if(elm.t)elm.t.close();
-  S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;
+  S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;S.rep={};S.snap={};resetTrip();
   setPill('busy','Conectando…');
-  await transport.open(s=>elm.onData(s),onDrop);
+  S.dropped=false;S.diag=[];dlog('Modo '+mode);await transport.open(s=>elm.onData(s),onDrop,dlog);
   elm.t=transport;
-  const step=async(c,ms)=>{logLine('tx','> '+c);try{const r=await elm.send(c,ms);logLine('',r);return r}catch(e){logLine('er',e.message);return ''}};
-  await step('ATZ',5000);await sleep(mode==='real'?800:0);
+  const step=async(c,ms)=>{dlog('> '+c,'tx');try{const r=await elm.send(c,ms);dlog(r||'(vacío)');return r}catch(e){dlog(e.message,'er');return ''}};
+  const dropErr=()=>new Error('El adaptador cortó la conexión Bluetooth durante la inicialización.');let warn='';
+  let z=await step('ATZ',5000);if(S.dropped)throw dropErr();
+  if(!z&&mode==='real'){await sleep(500);z=await step('ATZ',5000);if(S.dropped)throw dropErr()}
+  if(!z&&mode==='real')throw new Error('El adaptador conectó por Bluetooth pero no responde a ATZ: canal equivocado, adaptador dormido o en uso por otra app.');
+  await sleep(mode==='real'?800:0);
   for(const c of ['ATE0','ATL0','ATS0','ATH0','ATSP0'])await step(c,2000);
   setPill('busy','Buscando protocolo…');
-  await step('0100',12000);
+  const r0=await step('0100',12000);if(S.dropped)throw dropErr();
+  if(mode==='real'&&!/41\s*00/.test(r0))warn='<b>Adaptador conectado, pero el auto no respondió ('+esc(r0||'sin respuesta')+').</b> Revisa que esté en contacto o con el motor andando y vuelve a conectar. Puedes usar la Consola para probar comandos.';
   const dpn=(await step('ATDPN',2000)).replace(/[^0-9A-F]/gi,'');
   const pn=parseInt(dpn.slice(-1),16);S.isCAN=isNaN(pn)?true:pn>=6;
   S.proto=(await step('ATDP',2000))||'—';
@@ -460,24 +556,42 @@ async function connectWith(transport,mode){
   S.vin=parseVIN(await step('0902',4000));
   await readMonitors();
   if(!S.watch)S.watch=DEF_WATCH.slice();
+  if(S.dropped)throw dropErr();
   setPill(mode==='demo'?'demo':'ok',mode==='demo'?'Demo':'Conectado · '+transport.name);
   $('#bConnect').hidden=mode==='real';$('#bDisc').hidden=mode!=='real';$('#bDemo').hidden=mode==='demo';
-  if(mode==='real')banner('');
+  if(mode==='real')banner(warn,!!warn);
   renderStrip();renderSup();buildCards();startPoll();
 }
-function onDrop(){if(S.mode!=='real')return;stopPoll();elm.t=null;setPill('','Desconectado');$('#bConnect').hidden=false;$('#bDisc').hidden=true;$('#bDemo').hidden=false;banner('<b>Se perdió la conexión.</b> Revisa que el auto siga en contacto y vuelve a conectar.',true)}
+const esc=x=>String(x).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function dlog(m,cls){(S.diag=S.diag||[]).push(new Date().toISOString().slice(11,19)+' '+m);logLine(cls||'',m)}
+function diagBanner(head,hint){banner('<b>'+esc(head)+'</b> '+esc(hint)+'<pre class="log" style="height:auto;max-height:220px;margin:10px 0 8px;font-size:11px">'+esc((S.diag||[]).slice(-30).join('\n'))+'</pre><button class="btn" id="bCopyDiag" type="button">Copiar diagnóstico</button>',true)}
+$('#banner').addEventListener('click',e=>{if(e.target.id==='bCopyDiag'){const b=e.target;navigator.clipboard.writeText((S.diag||[]).join('\n')).then(()=>b.textContent='Copiado',()=>b.textContent='No se pudo copiar')}});
+function toIdle(){stopPoll();if(elm.t){try{elm.t.close()}catch{}}elm.t=null;S.mode='x';setPill('','Desconectado');$('#bConnect').hidden=false;$('#bDisc').hidden=true;$('#bDemo').hidden=false}
+function onDrop(){
+  if(S.mode!=='real')return;
+  S.dropped=true;elm.abort();
+  if(!elm.t)return;
+  dlog('Conexión perdida con la app ya conectada','er');
+  toIdle();diagBanner('Se perdió la conexión.','Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');
+}
 
 $('#bConnect').onclick=async()=>{
   if(!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
-  try{await connectWith(new Ble(),'real')}
+  const tr=new Ble();
+  try{await connectWith(tr,'real')}
   catch(e){
-    if(e.name==='NotFoundError'){setPill(S.mode==='demo'?'demo':'',S.mode==='demo'?'Demo':'Desconectado');return}
-    const sec=e.name==='SecurityError'||/permission|policy|allowed/i.test(e.message);
-    banner(sec?'<b>Bluetooth bloqueado aquí.</b> Esta vista no permite Bluetooth. Abre la copia alojada de la página en Chrome para Android.':'<b>No se pudo conectar.</b> '+e.message,true);
-    startDemo();
+    dlog('ERROR '+e.name+': '+e.message,'er');
+    try{tr.close()}catch{}
+    toIdle();
+    if(e.name==='NotFoundError'&&/chooser|cancel/i.test(e.message)){banner('Conexión cancelada. Toca <i>Conectar adaptador</i> para reintentar.');return}
+    let hint=e.message;
+    if(e.name==='SecurityError'||/permission|policy|allowed/i.test(e.message))hint='Esta vista no permite Bluetooth. Abre la página en Chrome para Android, con ubicación activada.';
+    else if(e.name==='NetworkError'||/GATT/i.test(e.message))hint='No se pudo abrir el enlace con el adaptador. Causas típicas: otra app conectada (cierra Car Scanner), adaptador dormido (desenchúfalo y vuelve a enchufarlo con contacto dado) o demasiado lejos.';
+    else if(/No Services|No encontré/i.test(e.message))hint='El adaptador no expone un canal de datos que esta app reconozca. Copia el diagnóstico y envíamelo: trae los servicios detectados.';
+    diagBanner('No se pudo conectar ('+e.name+').',hint);
   }
 };
-$('#bDisc').onclick=()=>{S.mode='x';stopPoll();if(elm.t)elm.t.close();elm.t=null;startDemo()};
+$('#bDisc').onclick=()=>{toIdle();banner('Desconectado. Toca <i>Conectar adaptador</i> para volver a conectar.')};
 $('#bDemo').onclick=startDemo;
 function startDemo(){banner('<b>Modo demostración.</b> Los valores son simulados. Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>.');connectWith(new Sim(),'demo')}
 
@@ -510,6 +624,7 @@ function renderSup(){
   addRow('BAT','Voltaje batería (medido por el adaptador)','ATRV',true);
   addRow('LPH','Consumo estimado de combustible','calc',true);
   addRow('KML','Rendimiento estimado','calc',true);
+  addRow('ACC','Aceleración (calculada desde velocidad)','calc',true);
   const uns=Object.keys(PIDS).map(Number).filter(p=>!S.sup.has(p));
   $('#unsTitle').textContent=uns.length+' parámetros OBD2 conocidos que tu auto no reporta';
   $('#unsList').innerHTML='';for(const p of uns){const c=document.createElement('span');c.className='chip';c.textContent=hx(p)+' · '+PIDS[p].n;$('#unsList').appendChild(c)}
@@ -518,7 +633,7 @@ $('#bReadAll').onclick=async()=>{
   const was=S.polling;stopPoll();await sleep(150);
   const sup=[...S.sup].filter(p=>!SKIP.has(p));let n=0;
   for(const p of sup){$('#readAllSt').textContent='Leyendo '+(++n)+' de '+sup.length+'…';
-    try{const b=parse01(await elm.send('01'+hx(p)),p)[0];if(b){const v=decode(p,b);const el=document.querySelector('[data-rv="'+p+'"]');if(el)el.textContent=typeof v==='string'?v:fmt(p,v)+' '+(PIDS[p].u||'')}}catch{}}
+    try{const b=parse01(await elm.send('01'+hx(p)),p)[0];if(b){const v=PIDS[p]?decode(p,b):null;const t=v==null?'0x'+b.map(hx).join(' '):typeof v==='string'?v:fmt(p,v)+' '+(PIDS[p].u||'');S.snap[p]=t;const el=document.querySelector('[data-rv="'+p+'"]');if(el)el.textContent=t}}catch{}}
   $('#readAllSt').textContent='Lectura completa';if(was)startPoll();
 };
 
@@ -534,7 +649,7 @@ function buildCards(){
   if(!g.children.length)g.innerHTML='<p class="muted">Sin medidores. Elige parámetros en <i>Datos disponibles</i>.</p>';
 }
 function pollList(){
-  const set=new Set();
+  const set=new Set();[0x0C,0x0D,0x0B,0x0F,0x10,0x5E].forEach(p=>S.sup.has(p)&&set.add(p));
   for(const id of S.watch){if(id==='LPH'||id==='KML'){[0x0C,0x0B,0x0F,0x10,0x5E].forEach(p=>S.sup.has(p)&&set.add(p));if(id==='KML'&&S.sup.has(0x0D))set.add(0x0D)}else if(id==='BAT'||S.sup.has(id))set.add(id)}
   return [...set];
 }
@@ -594,14 +709,14 @@ async function pollLoop(){
         cnt++;
       }catch(e){}
     }
-    computeVirtual();
+    computeVirtual();updateTrip();
     if(S.rec)recordRow();
     renderCards();
     const dt=(Date.now()-t)/1000;if(dt>2){$('#rate').textContent=(cnt/dt).toFixed(1)+' lecturas/s';cnt=0;t=Date.now()}
     await sleep(40);
   }
 }
-function startPoll(){if(S.polling||!elm.t)return;S.polling=true;$('#bPoll').textContent='Pausar lectura';pollLoop()}
+function startPoll(){if(S.polling||!elm.t||S.busy)return;S.polling=true;$('#bPoll').textContent='Pausar lectura';pollLoop()}
 function stopPoll(){S.polling=false;$('#bPoll').textContent='Reanudar lectura'}
 $('#bPoll').onclick=()=>{if(S.polling){S.userPaused=true;stopPoll()}else{S.userPaused=false;startPoll()}};
 
@@ -664,6 +779,7 @@ $('#bSum').onclick=()=>{
   else L.push('Códigos: no leídos aún');
   L.push('','Lecturas de la sesión (mín / promedio / máx):');
   for(const id of Object.keys(S.stats)){const k=isNaN(id)?id:Number(id);const p=info(k);const s=S.stats[id];if(!p||!s.n)continue;L.push('- '+p.n+': '+fmt(k,s.min)+' / '+fmt(k,s.sum/s.n)+' / '+fmt(k,s.max)+' '+(p.u||''))}
+  L.push(...tripLines());{const rt=reportText();if(rt)L.push('',rt)}
   L.push('','Pregunta: interpreta estos datos. ¿Hay algo anormal, qué podría causarlo y qué tan urgente es revisarlo?');
   $('#sum').value=L.join('\n');$('#copySt').textContent='';
 };
@@ -673,6 +789,192 @@ $('#bCopy').onclick=()=>{if(!$('#sum').value)$('#bSum').onclick();const t=$('#su
 ['ATRV','ATI','ATDP','0100','0101','010C','03','0902'].forEach(c=>{const b=document.createElement('button');b.className='chip';b.textContent=c;b.type='button';b.onclick=()=>{$('#cmdIn').value=c;$('#cmdForm').requestSubmit()};$('#quick').appendChild(b)});
 $('#cmdForm').onsubmit=async e=>{e.preventDefault();const c=$('#cmdIn').value.trim().toUpperCase();if(!c)return;stopPoll();logLine('tx','> '+c);try{logLine('',await elm.send(c,8000)||'(sin respuesta)')}catch(err){logLine('er',err.message)}$('#cmdIn').value=''};
 
+/* ---------- Viaje (calculado) ---------- */
+const T={d:0,t:0,idle:0,fuel:0,last:null,psp:null};
+function fmtT(s){s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+function resetTrip(){T.d=T.t=T.idle=T.fuel=0;T.last=null;T.psp=null;renderTrip()}
+function updateTrip(){
+  const now=Date.now(),dt=T.last?(now-T.last)/1000:0;T.last=now;
+  const sp=S.vals[0x0D],rpm=S.vals[0x0C],lph=S.vals.LPH;
+  if(dt<=0||dt>2.5){T.psp=sp==null?null:sp;return}
+  if(sp!=null){T.d+=sp*dt/3600;if(T.psp!=null)setVal('ACC',(sp-T.psp)/3.6/dt);T.psp=sp}
+  if(rpm!=null&&rpm>400){T.t+=dt;if((sp||0)<2)T.idle+=dt}
+  if(lph!=null)T.fuel+=lph*dt/3600;
+  renderTrip();
+}
+function renderTrip(){
+  $('#tDist').textContent=T.d.toFixed(2)+' km';$('#tTime').textContent=fmtT(T.t);
+  $('#tIdle').textContent=T.t>0?Math.round(T.idle/T.t*100)+' %':'—';
+  $('#tFuel').textContent=T.fuel.toFixed(2)+' L';
+  $('#tAvg').textContent=T.fuel>0.02&&T.d>0.1?(T.d/T.fuel).toFixed(1)+' km/L':'—';
+  const pr=parseFloat($('#fuelPrice').value)||0;
+  $('#tCost').textContent=pr&&T.fuel>0?'$'+Math.round(T.fuel*pr).toLocaleString('es-CL')+(T.d>0.1?' · $'+Math.round(T.fuel*pr/T.d)+'/km':''):'—';
+}
+function tripLines(){return T.t>0?['','Viaje (estimado): '+T.d.toFixed(1)+' km en '+fmtT(T.t)+' min; ralentí '+Math.round(T.idle/T.t*100)+'%; combustible '+T.fuel.toFixed(2)+' L; promedio '+(T.fuel>0.02?(T.d/T.fuel).toFixed(1):'—')+' km/L']:[]}
+$('#fuelPrice').value=ls.get('obd_price',1300);
+$('#fuelPrice').oninput=()=>{ls.set('obd_price',$('#fuelPrice').value);renderTrip()};
+$('#bTripReset').onclick=resetTrip;
+
+/* ---------- Escáner: modos 02, 06, 09, adaptador y módulos UDS (solo lectura) ---------- */
+const hexN=n=>n.toString(16).toUpperCase();
+const hex4=n=>hexN(n).padStart(4,'0');
+const cmd=async(c,ms=3000)=>{try{return await elm.send(c,ms)}catch{return ''}};
+const maskSet=(b,base)=>{const o=[];if(!b||b.length<4)return o;const v=(b[0]<<24)|(b[1]<<16)|(b[2]<<8)|b[3];for(let i=1;i<=32;i++)if((v&(1<<(32-i)))!==0)o.push(base+i);return o};
+/* une respuesta multi-trama o de una línea en un solo string hex ('' si no hay datos) */
+function joinResp(r){
+  const L=lines(r);
+  if(!L.length||L.some(l=>/NODATA|UNABLE|ERROR|\?/.test(l)))return '';
+  const fr=L.filter(l=>/^[0-9A-F]:/.test(l));
+  return (fr.length?fr.map(l=>l.slice(2)):L.filter(l=>/^[0-9A-F]+$/.test(l)&&l.length%2===0)).join('');
+}
+function txt(b){const nz=b.filter(c=>c!==0);return nz.length&&nz.every(c=>c>=32&&c<127)?String.fromCharCode(...nz).trim():null}
+const show=b=>txt(b)||b.map(hx).join(' ');
+async function rd09(pid){const s=joinResp(await cmd('09'+hx(pid),5000));const i=s.indexOf('49'+hx(pid));return i<0?null:bytesOf(s.slice(i+4))}
+
+async function readAdapter(){
+  const rows=[];
+  for(const [k,c] of [['Versión ELM','ATI'],['Dispositivo','AT@1'],['Voltaje batería','ATRV'],['Protocolo',"ATDP"],['Pin de ignición','ATIGN']]){
+    const r=(await cmd(c,2000)).replace(/\n/g,' ').trim();rows.push([k,r||'sin respuesta'])
+  }
+  rows.push(['Servicio BLE usado',S.mode==='real'&&elm.t&&elm.t.svc?elm.t.svc:'—']);
+  return rows;
+}
+async function readIdent(){
+  const rows=[];if(S.vin)rows.push(['VIN',S.vin]);
+  const sup=new Set(maskSet(await rd09(0),0));
+  const ok=p=>!sup.size||sup.has(p);
+  if(sup.size)rows.push(['Info soportada (modo 09)',[...sup].map(hx).join(' ')]);
+  if(ok(4)){const b=await rd09(4);if(b&&b.length>1){const d=b.slice(1);for(let i=0;i<d.length;i+=16){const t=txt(d.slice(i,i+16));if(t)rows.push(['ID de calibración',t])}}}
+  if(ok(6)){const b=await rd09(6);if(b&&b.length>1){const d=b.slice(1),c=[];for(let i=0;i+4<=d.length;i+=4)c.push(d.slice(i,i+4).map(hx).join(''));rows.push(['CVN (verificación de calibración)',c.join(' ')])}}
+  if(ok(10)){const b=await rd09(10);if(b&&b.length>1){const t=txt(b.slice(1));if(t)rows.push(['Nombre de la ECU',t])}}
+  return rows;
+}
+const FF_PIDS=[0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0E,0x0F,0x10,0x11,0x42];
+async function readFF(){
+  const rows=[];
+  const s=joinResp(await cmd('020200',4000));const i=s.indexOf('420200');
+  const h=i<0?'':s.substr(i+6,4);
+  if(h.length<4||h==='0000')return rows;
+  rows.push(['Falla que originó el registro',dtcName(h)+' · '+dtcInfo(dtcName(h)).d]);
+  for(const p of FF_PIDS){
+    const s2=joinResp(await cmd('02'+hx(p)+'00',3000));const j=s2.indexOf('42'+hx(p)+'00');if(j<0)continue;
+    const b=bytesOf(s2.slice(j+6));if(!b.length||!PIDS[p])continue;
+    const v=decode(p,b);rows.push([PIDS[p].n,typeof v==='string'?v:fmt(p,v)+' '+(PIDS[p].u||'')]);
+  }
+  return rows;
+}
+async function readM06(){
+  const mids=[];
+  for(let base=0;base<=0xE0;base+=0x20){
+    const s=joinResp(await cmd('06'+hx(base),5000));const i=s.indexOf('46'+hx(base));if(i<0)break;
+    const m=maskSet(bytesOf(s.slice(i+4)),base);mids.push(...m.filter(x=>x%0x20));
+    if(!m.includes(base+0x20))break;
+  }
+  const rows=[];let bad=0,tot=0;
+  for(const mid of mids){
+    const s=joinResp(await cmd('06'+hx(mid),6000));const i=s.indexOf('46'+hx(mid));if(i<0)continue;
+    const b=bytesOf(s.slice(i+4));
+    for(let j=0;j+8<=b.length;j+=8){
+      const val=b[j+2]*256+b[j+3],mn=b[j+4]*256+b[j+5],mx=b[j+6]*256+b[j+7],ok=val>=mn&&val<=mx;tot++;if(!ok)bad++;
+      rows.push(['MID '+hx(mid)+' · TID '+hx(b[j]),val+' (mín '+mn+', máx '+mx+') '+(ok?'OK':'FUERA DE RANGO')]);
+    }
+  }
+  if(rows.length)rows.unshift(['Resumen',tot+' pruebas · '+bad+' fuera de rango (valores sin escalar; validar con auto real)']);
+  return rows;
+}
+const UDS_DIDS=[[0xF190,'VIN'],[0xF187,'N.º de pieza'],[0xF188,'N.º de software'],[0xF189,'Versión de software'],[0xF18A,'Proveedor'],[0xF18B,'Fecha de fabricación'],[0xF18C,'N.º de serie'],[0xF191,'N.º de hardware'],[0xF193,'Versión de hardware'],[0xF194,'Software del proveedor'],[0xF195,'Versión sw proveedor'],[0xF197,'Nombre del sistema']];
+async function probeModules(full,onProg){
+  if(!S.isCAN)return [];
+  const ids=[];
+  if(full){for(let a=0x700;a<=0x7DE;a++)ids.push(a)}else{for(let a=0x7E0;a<=0x7E7;a++)ids.push(a);for(let a=0x7A0;a<=0x7BF;a++)ids.push(a)}
+  await cmd('ATH1',2000);await cmd('ATST20',2000);
+  const found=[];
+  for(let n=0;n<ids.length&&!S.cancelScan;n++){
+    const a=ids[n];onProg(n+1,ids.length,found.length);
+    await cmd('ATSH'+hexN(a),2000);
+    const r=await cmd('3E00',2500),want=hexN(a+8);
+    if(lines(r).some(l=>l.startsWith(want)&&l.length>=6))found.push({req:a,res:a+8});
+  }
+  await cmd('ATSH7DF',2000);await cmd('ATST32',2000);await cmd('ATH0',2000);
+  return found;
+}
+async function readModule(m){
+  await cmd('ATH0',2000);await cmd('ATSH'+hexN(m.req),2000);await cmd('ATCRA'+hexN(m.res),2000);
+  const rows=[];
+  for(const [d,n] of UDS_DIDS){
+    const s=joinResp(await cmd('22'+hex4(d),3000));const i=s.indexOf('62'+hex4(d));if(i<0)continue;
+    const b=bytesOf(s.slice(i+6));if(b.length)rows.push([n,show(b)]);
+  }
+  const s=joinResp(await cmd('1902FF',5000));const i=s.indexOf('5902');
+  if(i>=0){
+    const b=bytesOf(s.slice(i+6)),c=[];
+    for(let j=0;j+4<=b.length;j+=4)c.push(dtcName(hx(b[j])+hx(b[j+1]))+'-'+hx(b[j+2])+' (estado '+hx(b[j+3])+')');
+    rows.push(['Fallas del módulo (UDS)',c.length?c.join(', '):'ninguna']);
+  }
+  await cmd('ATAR',2000);await cmd('ATSH7DF',2000);
+  return {title:'Módulo '+hexN(m.req)+' → '+hexN(m.res),rows};
+}
+
+/* ---------- Escáner: UI ---------- */
+function kv(box,rows,empty){
+  box.innerHTML='';
+  if(!rows.length){box.innerHTML='<p class="muted">'+(empty||'Sin datos.')+'</p>';return}
+  const g=document.createElement('div');g.className='kv';
+  for(const [k,v] of rows){const a=document.createElement('span'),b=document.createElement('span');a.textContent=k;b.textContent=v;g.append(a,b)}
+  box.appendChild(g);
+}
+function renderMods(){
+  const box=$('#oMods');box.innerHTML='';const M=S.rep.mods;
+  if(!M||!M.length){box.innerHTML='<p class="muted">'+(M?'Ningún módulo respondió. Prueba el escaneo ampliado o revisa que el auto esté en contacto.':'Sin datos aún.')+'</p>';return}
+  for(const m of M){const h=document.createElement('div');h.className='grp';h.textContent=m.title;box.appendChild(h);const d=document.createElement('div');box.appendChild(d);kv(d,m.rows,'Respondió, pero no entregó identificación por UDS.')}
+}
+const say=m=>{$('#scanSt').textContent=m};
+async function exclusive(fn){const was=S.polling;stopPoll();S.busy=true;await sleep(150);try{return await fn()}finally{S.busy=false;if(was)startPoll()}}
+function run(fn){return exclusive(async()=>{S.cancelScan=false;$('#bScanStop').hidden=false;try{await fn()}catch(e){say('Error: '+e.message)}finally{$('#bScanStop').hidden=true}})}
+const doAdp=async()=>{say('Leyendo adaptador…');S.rep.adp=await readAdapter();kv($('#oAdp'),S.rep.adp);say('')};
+const doIdent=async()=>{say('Leyendo identificación…');S.rep.id=await readIdent();kv($('#oId'),S.rep.id,'El auto no respondió al modo 09.');say('')};
+const doFF=async()=>{say('Leyendo datos congelados…');S.rep.ff=await readFF();kv($('#oFF'),S.rep.ff,'Sin datos congelados: no hay falla registrada.');say('')};
+const doM06=async()=>{say('Leyendo pruebas de monitoreo…');S.rep.m06=await readM06();kv($('#oM06'),S.rep.m06,'El auto no responde al modo 06.');say('')};
+async function doMods(full){
+  if(full&&!confirm('El escaneo ampliado envía tramas de prueba a unas 220 direcciones CAN. Hazlo con el auto detenido y en contacto. ¿Continuar?'))return;
+  const found=await probeModules(full,(n,t,f)=>say('Sondeando '+n+'/'+t+' · encontrados '+f));
+  const out=[];
+  for(const m of found){if(S.cancelScan)break;say('Leyendo módulo '+hexN(m.req)+'…');out.push(await readModule(m))}
+  S.rep.mods=out;renderMods();say(found.length+' módulos respondieron'+(S.cancelScan?' (cancelado)':''));
+}
+$('#bAdp').onclick=()=>run(doAdp);
+$('#bId').onclick=()=>run(doIdent);
+$('#bFF').onclick=()=>run(doFF);
+$('#bM06').onclick=()=>run(doM06);
+$('#bModQ').onclick=()=>run(()=>doMods(false));
+$('#bModF').onclick=()=>run(()=>doMods(true));
+$('#bScanStop').onclick=()=>{S.cancelScan=true};
+$('#bScan').onclick=()=>run(async()=>{
+  const steps=[['Adaptador',doAdp],['Identificación',doIdent],['Todos los parámetros',()=>$('#bReadAll').onclick()],['Fallas y monitores',()=>$('#bDtc').onclick()],['Datos congelados',doFF],['Pruebas de monitoreo',doM06],['Módulos',()=>doMods(false)]];
+  for(const [n,f] of steps){if(S.cancelScan)break;say(n+'…');await f()}
+  $('#bSum').onclick();say(S.cancelScan?'Cancelado':'Listo. Informe en el cuadro de abajo.');
+});
+function reportText(){
+  const R=S.rep,L=[];
+  const sec=(t,rows)=>{if(rows&&rows.length){L.push('',t);rows.forEach(([k,v])=>L.push('- '+k+': '+v))}};
+  sec('ADAPTADOR',R.adp);sec('IDENTIFICACIÓN (modo 09)',R.id);
+  const sn=Object.entries(S.snap);
+  if(sn.length){L.push('','LECTURA ÚNICA DE TODOS LOS PARÁMETROS (modo 01)');sn.forEach(([p,v])=>L.push('- '+hx(+p)+' '+(PIDS[p]?PIDS[p].n:'sin nombre')+': '+v))}
+  sec('DATOS CONGELADOS (modo 02)',R.ff);sec('PRUEBAS DE MONITOREO (modo 06)',R.m06);
+  if(R.mods&&R.mods.length){L.push('','MÓDULOS (UDS, solo lectura)');R.mods.forEach(m=>{L.push(m.title);m.rows.forEach(([k,v])=>L.push('  - '+k+': '+v))})}
+  return L.join('\n').trim();
+}
+$('#bRepDl').onclick=()=>{
+  $('#bSum').onclick();
+  const blob=new Blob(['﻿'+$('#sum').value],{type:'text/plain'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='informe_obd_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';document.body.appendChild(a);a.click();a.remove();
+};
+
 window.addEventListener('resize',()=>renderCards());
-startDemo();
+S.watch=S.watch||DEF_WATCH.slice();
+$('#cards').innerHTML='<p class="muted">Conecta el adaptador para ver datos en vivo.</p>';
+toIdle();
+banner('Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>. <i>Ver demo</i> muestra datos simulados.');
 </script>
+</body>
+</html>
