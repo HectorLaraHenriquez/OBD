@@ -350,7 +350,7 @@ const SVC=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805
 class Ble{
   async open(onData,onDrop,log=()=>{}){
     log('Abriendo selector Bluetooth…');
-    const opt=this.all?{acceptAllDevices:true,optionalServices:SVC}:{filters:[...SVC.map(u=>({services:[u]})),...['iCar','ICAR','Vgate','VGATE','IOS-Vlink','V-LINK','OBD','ELM','vLinker','Veepeak'].map(p=>({namePrefix:p}))],optionalServices:SVC};
+    const opt=this.all?{acceptAllDevices:true,optionalServices:SVC}:{filters:[...SVC.map(u=>({services:[u]})),...['iCar','ICAR','Vgate','VGATE','IOS-Vlink','V-LINK','V-Link','v-link','VLINK','Vlink','vlink','V-link','OBD','ELM','vLinker','Veepeak'].map(p=>({namePrefix:p}))],optionalServices:SVC};
     log(this.all?'Selector: todos los dispositivos':'Selector: solo dispositivos con servicios/nombres de adaptador OBD');
     this.dev=await navigator.bluetooth.requestDevice(opt);
     log('Dispositivo elegido: '+(this.dev.name||'(sin nombre)')+' · id '+this.dev.id);
