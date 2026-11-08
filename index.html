@@ -360,7 +360,7 @@ class Ble{
       try{
         log('Intento '+a+'/3: conectando GATT…');
         if(!g.connected)await g.connect();
-        log('GATT conectado. Esperando 600 ms y consultando servicios conocidos…');
+        log('GATT conectado. Si Android pide un código de emparejamiento, ingrésalo (prueba 1234).');
         await sleep(600);
         for(const u of SVC){
           let s;
@@ -553,7 +553,10 @@ async function connectWith(transport,mode){
   if(elm.t)elm.t.close();
   S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;S.rep={};S.snap={};resetTrip();
   setPill('busy','Conectando…');
-  S.dropped=false;S.diag=[];dlog('Modo '+mode);await transport.open(s=>elm.onData(s),onDrop,dlog);S.dropped=false;
+  S.dropped=false;S.diag=[];dlog('Modo '+mode);
+  const pairTimer=mode==='real'?setTimeout(()=>{dlog('Tardando: posible solicitud de emparejamiento pendiente');banner('<b>Esperando al adaptador…</b> Si Android pide un <b>código de emparejamiento</b>, ingrésalo (prueba <b>1234</b>; otros comunes: 0000, 6789). Mira también la barra de notificaciones: a veces la solicitud aparece ahí.')},6000):null;
+  try{await transport.open(s=>elm.onData(s),onDrop,dlog)}finally{clearTimeout(pairTimer)}
+  S.dropped=false;
   elm.t=transport;
   const step=async(c,ms)=>{dlog('> '+c,'tx');try{const r=await elm.send(c,ms);dlog(r||'(vacío)');return r}catch(e){dlog(e.message,'er');return ''}};
   const dropErr=()=>new Error('El adaptador cortó la conexión Bluetooth durante la inicialización.');let warn='';
