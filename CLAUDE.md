@@ -25,6 +25,8 @@ Chrome en Android soporta **Web Bluetooth** solo para BLE, lo que calza con el i
 
 - `index.html` — app completa en un solo archivo (HTML + CSS + JS, sin dependencias salvo Google Fonts).
 - `CLAUDE.md` — este documento.
+- `CAPACIDADES.md` — qué datos se pueden extraer del auto y cuáles no.
+- `OLD/` — versiones anteriores de `index.html`.
 
 ## Arquitectura de `index.html`
 
@@ -54,11 +56,12 @@ Nombre en español, categoría, unidad y fórmula de decodificación para ~40 PI
 - `KML` rendimiento: velocidad / L/h (solo sobre 3 km/h).
 
 ### UI (pestañas)
-1. **En vivo:** VIN, protocolo, check engine, n.º de fallas; tarjetas con valor, mín/máx de la sesión y sparkline (canvas, últimas 120 lecturas). Estados de alerta: refrigerante >99 °C aviso, >105 °C crítico; fuel trims >10 % aviso, >20 % crítico; voltaje según motor encendido/apagado.
+1. **En vivo:** computador de viaje (distancia, tiempo, ralentí, combustible, costo con precio editable, aceleración calculada); VIN, protocolo, check engine, n.º de fallas; tarjetas con valor, mín/máx de la sesión y sparkline (canvas, últimas 120 lecturas). Estados de alerta: refrigerante >99 °C aviso, >105 °C crítico; fuel trims >10 % aviso, >20 % crítico; voltaje según motor encendido/apagado.
 2. **Datos disponibles:** PIDs soportados agrupados, botón "Leer todos una vez", casillas para elegir medidores (se guardan en `localStorage`, clave `obd_watch`), y lista de PIDs que el auto no reporta.
 3. **Fallas:** códigos con descripción (diccionario `DTC_DB` de ~50 códigos genéricos) y severidad; borrado (`04`) con confirmación en dos pasos; monitores de emisiones.
 4. **Registro:** grabar viaje y exportar CSV; "Resumen para IA" (texto para pegar en Claude con VIN, fallas, monitores y min/prom/máx de cada parámetro).
-5. **Consola:** comandos ELM327 directos; pausa la lectura en vivo.
+5. **Escáner:** escaneo completo de solo lectura: adaptador, modo 09 (VIN/calibración/CVN), modo 02 (datos congelados), modo 06 (autopruebas), sondeo de módulos por UDS (`3E00`, `22 F1xx`, `19 02`) rápido (7E0–7E7, 7A0–7BF) o ampliado (700–7DE). Informe descargable `.txt` (usa el resumen para IA).
+6. **Consola:** comandos ELM327 directos; pausa la lectura en vivo.
 
 Diseño: tokens CSS, dark-first con tema claro, fuentes Barlow Condensed / IBM Plex Sans / IBM Plex Mono, responsive para móvil.
 
