@@ -136,6 +136,7 @@ textarea{min-height:200px;resize:vertical}
     <h1 class="brand">Tablero OBD<small>MG GT 1.5 · iCar2 BLE</small></h1>
     <span class="pill" id="pill" data-s="demo">Demo</span>
     <div class="actions">
+      <label class="sw"><input type="checkbox" id="allDev">Mostrar todos</label>
       <button class="btn primary" id="bConnect">Conectar adaptador</button>
       <button class="btn" id="bDemo" hidden>Ver demo</button>
       <button class="btn" id="bDisc" hidden>Desconectar</button>
@@ -349,7 +350,9 @@ const SVC=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805
 class Ble{
   async open(onData,onDrop,log=()=>{}){
     log('Abriendo selector Bluetooth…');
-    this.dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SVC});
+    const opt=this.all?{acceptAllDevices:true,optionalServices:SVC}:{filters:[...SVC.map(u=>({services:[u]})),...['iCar','ICAR','Vgate','VGATE','IOS-Vlink','V-LINK','OBD','ELM','vLinker','Veepeak'].map(p=>({namePrefix:p}))],optionalServices:SVC};
+    log(this.all?'Selector: todos los dispositivos':'Selector: solo dispositivos con servicios/nombres de adaptador OBD');
+    this.dev=await navigator.bluetooth.requestDevice(opt);
     log('Dispositivo elegido: '+(this.dev.name||'(sin nombre)')+' · id '+this.dev.id);
     this.dev.addEventListener('gattserverdisconnected',()=>{log('Evento gattserverdisconnected: el adaptador cortó la conexión');onDrop()});
     const g=this.dev.gatt;
@@ -590,13 +593,13 @@ function onDrop(){
 
 $('#bConnect').onclick=async()=>{
   if(!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
-  const tr=new Ble();
+  const tr=new Ble();tr.all=$('#allDev').checked;ls.set('obd_all',tr.all);
   try{await connectWith(tr,'real')}
   catch(e){
     dlog('ERROR '+e.name+': '+e.message,'er');
     try{tr.close()}catch{}
     toIdle();
-    if(e.name==='NotFoundError'&&/chooser|cancel/i.test(e.message)){banner('Conexión cancelada. Toca <i>Conectar adaptador</i> para reintentar.');return}
+    if(e.name==='NotFoundError'&&/chooser|cancel/i.test(e.message)){banner('Conexión cancelada. Si no veías el adaptador en la lista, marca <i>Mostrar todos</i> y reintenta.');return}
     let hint=e.message;
     if(e.name==='SecurityError'||/permission|policy|allowed/i.test(e.message))hint='Esta vista no permite Bluetooth. Abre la página en Chrome para Android, con ubicación activada.';
     else if(e.name==='NetworkError'||/GATT/i.test(e.message))hint='No se pudo abrir el enlace con el adaptador. Causas típicas: otra app conectada (cierra Car Scanner), adaptador dormido (desenchúfalo y vuelve a enchufarlo con contacto dado) o demasiado lejos.';
@@ -985,6 +988,7 @@ $('#bRepDl').onclick=()=>{
 
 window.addEventListener('resize',()=>renderCards());
 S.watch=S.watch||DEF_WATCH.slice();
+$('#allDev').checked=ls.get('obd_all',false);
 $('#cards').innerHTML='<p class="muted">Conecta el adaptador para ver datos en vivo.</p>';
 toIdle();
 banner('Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>. <i>Ver demo</i> muestra datos simulados.');
