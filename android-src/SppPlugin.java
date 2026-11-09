@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothSocket;
 
 import android.content.Intent;
 import android.os.Build;
+import android.view.WindowManager;
 
 import androidx.core.content.ContextCompat;
 
@@ -181,5 +182,23 @@ public class SppPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("servicio: " + e.getMessage());
         }
+    }
+
+    /** Mantiene la pantalla encendida mientras la app está visible. */
+    @PluginMethod
+    public void keepScreenOn(final PluginCall call) {
+        Boolean b = call.getBoolean("on", true);
+        final boolean on = b == null || b;
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (on) {
+                    getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                } else {
+                    getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+                call.resolve();
+            }
+        });
     }
 }
