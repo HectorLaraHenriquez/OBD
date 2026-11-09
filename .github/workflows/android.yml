@@ -35,6 +35,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
               <uses-permission android:name="android.permission.WAKE_LOCK"/>
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+          <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
               '''
           assert s.count('<application')==1 and '</application>' in s
           s=s.replace('<application',perms+'<application',1)

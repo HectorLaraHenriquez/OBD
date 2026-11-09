@@ -6,9 +6,23 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.PixelFormat;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.core.content.ContextCompat;
 
@@ -200,5 +214,200 @@ public class SppPlugin extends Plugin {
                 call.resolve();
             }
         });
+    }
+
+    // ---------------- Burbuja flotante (sobre otras apps) ----------------
+    private WindowManager wm;
+    private LinearLayout bubble;
+    private TextView b1, b2, b3;
+    private GradientDrawable bubbleBg;
+    private WindowManager.LayoutParams bubbleLp;
+    private boolean overlayWanted = false;
+    private final Handler main = new Handler(Looper.getMainLooper());
+
+    private int dp(int v) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getContext().getResources().getDisplayMetrics());
+    }
+
+    private boolean canDraw() {
+        return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext());
+    }
+
+    private TextView makeText(Context c, int sp, int color, boolean bold) {
+        TextView t = new TextView(c);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextColor(color);
+        t.setSingleLine(true);
+        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+        return t;
+    }
+
+    @PluginMethod
+    public void overlayCanDraw(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("value", canDraw());
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void overlayRequest(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("ajustes: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void overlayEnable(PluginCall call) {
+        Boolean b = call.getBoolean("on", false);
+        overlayWanted = b != null && b;
+        if (!overlayWanted) hideBubble();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void overlayUpdate(PluginCall call) {
+        final String l1 = call.getString("l1", "");
+        final String l2 = call.getString("l2", "");
+        final String l3 = call.getString("l3", "");
+        final String st = call.getString("state", "");
+        call.resolve();
+        main.post(new Runnable() {
+            @Override
+            public void run() {
+                if (bubble == null) return;
+                b1.setText(l1);
+                b2.setText(l2);
+                b3.setText(l3);
+                int c = 0xFF2C3644;
+                if ("bad".equals(st)) c = 0xFFEF5B5B;
+                else if ("warn".equals(st)) c = 0xFFF08A3C;
+                bubbleBg.setStroke(dp(2), c);
+            }
+        });
+    }
+
+    private void openApp() {
+        try {
+            Intent i = getContext().getPackageManager().getLaunchIntentForPackage(getContext().getPackageName());
+            if (i != null) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                getContext().startActivity(i);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void showBubble() {
+        main.post(new Runnable() {
+            @Override
+            public void run() {
+                if (bubble != null || !canDraw()) return;
+                try {
+                    Context c = getContext().getApplicationContext();
+                    wm = (WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
+                    LinearLayout ll = new LinearLayout(c);
+                    ll.setOrientation(LinearLayout.VERTICAL);
+                    ll.setPadding(dp(10), dp(6), dp(10), dp(6));
+                    bubbleBg = new GradientDrawable();
+                    bubbleBg.setColor(0xDD11151B);
+                    bubbleBg.setCornerRadius(dp(12));
+                    bubbleBg.setStroke(dp(2), 0xFF2C3644);
+                    ll.setBackground(bubbleBg);
+                    b1 = makeText(c, 18, 0xFFF2A93B, true);
+                    b2 = makeText(c, 13, 0xFFE7EAF0, false);
+                    b3 = makeText(c, 12, 0xFF8C96A6, false);
+                    b1.setText("Tablero OBD");
+                    b2.setText("esperando datos…");
+                    b3.setText("");
+                    ll.addView(b1);
+                    ll.addView(b2);
+                    ll.addView(b3);
+                    int type = Build.VERSION.SDK_INT >= 26
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE;
+                    bubbleLp = new WindowManager.LayoutParams(
+                            WindowManager.LayoutParams.WRAP_CONTENT,
+                            WindowManager.LayoutParams.WRAP_CONTENT,
+                            type,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                            PixelFormat.TRANSLUCENT);
+                    bubbleLp.gravity = Gravity.TOP | Gravity.START;
+                    bubbleLp.x = dp(8);
+                    bubbleLp.y = dp(140);
+                    ll.setOnTouchListener(new View.OnTouchListener() {
+                        private float sx, sy;
+                        private int ox, oy;
+                        private boolean moved;
+
+                        @Override
+                        public boolean onTouch(View v, MotionEvent e) {
+                            int a = e.getAction();
+                            if (a == MotionEvent.ACTION_DOWN) {
+                                sx = e.getRawX();
+                                sy = e.getRawY();
+                                ox = bubbleLp.x;
+                                oy = bubbleLp.y;
+                                moved = false;
+                                return true;
+                            } else if (a == MotionEvent.ACTION_MOVE) {
+                                float dx = e.getRawX() - sx;
+                                float dy = e.getRawY() - sy;
+                                if (Math.abs(dx) > dp(6) || Math.abs(dy) > dp(6)) moved = true;
+                                bubbleLp.x = ox + (int) dx;
+                                bubbleLp.y = oy + (int) dy;
+                                try {
+                                    wm.updateViewLayout(bubble, bubbleLp);
+                                } catch (Exception ignored) {
+                                }
+                                return true;
+                            } else if (a == MotionEvent.ACTION_UP) {
+                                if (!moved) openApp();
+                                return true;
+                            }
+                            return false;
+                        }
+                    });
+                    wm.addView(ll, bubbleLp);
+                    bubble = ll;
+                } catch (Exception e) {
+                    bubble = null;
+                }
+            }
+        });
+    }
+
+    private void hideBubble() {
+        main.post(new Runnable() {
+            @Override
+            public void run() {
+                if (bubble != null) {
+                    try {
+                        wm.removeView(bubble);
+                    } catch (Exception ignored) {
+                    }
+                    bubble = null;
+                }
+            }
+        });
+    }
+
+    @Override
+    protected void handleOnPause() {
+        if (overlayWanted) showBubble();
+    }
+
+    @Override
+    protected void handleOnResume() {
+        hideBubble();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        hideBubble();
     }
 }

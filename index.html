@@ -194,6 +194,15 @@ textarea{min-height:200px;resize:vertical}
       <label class="muted" style="font-size:13px">Precio bencina $/L <input id="fuelPrice" type="number" min="0" step="1" style="width:84px;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 6px"></label>
       <button class="btn" id="bTripReset">Reiniciar viaje</button>
     </div>
+    <details class="calib"><summary>Calibrar consumo con el estanque</summary>
+      <div class="panel" style="margin-top:8px">
+        <p class="muted" style="font-size:13px">Llena el estanque y toca <b>Iniciar tramo</b>. Maneja normal con la app conectada. Cuando vuelvas a llenar, ingresa los litros cargados y toca <b>Finalizar y calibrar</b>. La app ajusta su estimación para que coincida con tu consumo real. Conviene un tramo de 100 km o más.</p>
+        <div id="calKv"></div>
+        <div class="row"><button class="btn" id="calStart">Iniciar tramo (estanque lleno)</button></div>
+        <div class="row"><input id="calL" type="number" min="0" step="0.1" placeholder="Litros cargados" style="width:130px;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px"><button class="btn primary" id="calEnd">Finalizar y calibrar</button><button class="btn" id="calReset">Quitar calibración</button></div>
+        <p class="muted" id="calSt" style="font-size:13px"></p>
+      </div>
+    </details>
     <div class="row">
       <button class="btn" id="bPoll">Pausar lectura</button>
       <span class="grow" id="rate">—</span>
@@ -253,6 +262,10 @@ textarea{min-height:200px;resize:vertical}
       <p class="muted">Cada conexión se graba sola: una fila por segundo con todos los parámetros que el auto reporta, más alertas y fallas. Queda guardado en el teléfono y puedes exportarlo para analizarlo.</p>
       <div class="row"><span class="grow" id="recStat" style="color:var(--fg)">—</span><label class="sw"><input type="checkbox" id="fullTrack">Seguimiento completo</label></div>
       <div class="row"><span class="grow muted" style="font-size:13px">Pantalla</span><label class="sw"><input type="checkbox" id="keepOn">Mantener pantalla encendida</label></div>
+      <div class="row"><span class="grow muted" style="font-size:13px">Consultas al auto</span><label class="sw"><input type="checkbox" id="lightOn">Modo liviano</label></div>
+      <p class="muted" style="font-size:12px">Modo liviano: solo lee el tablero y los datos de consumo. Desactiva la lectura de parámetros lentos y los chequeos automáticos (modo 06, datos congelados, identificación). La luz check engine se sigue revisando cada 30 s.</p>
+      <div class="row" id="bubRow"><span class="grow muted" style="font-size:13px">Burbuja flotante (sobre otras apps)</span><label class="sw"><input type="checkbox" id="bubOn">Activar</label></div>
+      <p class="muted" id="bubSt" style="font-size:12px"></p>
       <p class="muted" style="font-size:12px">Seguimiento completo: además del tablero, lee de a dos por ciclo los demás parámetros lentos (temperaturas, presiones, ajustes…). Cada uno se actualiza cada varios segundos.</p>
       <div class="row"><button class="btn" id="bExpAll">Exportar todo (JSON)</button><button class="btn danger" id="bDelAll">Borrar todo</button></div>
     </div>
@@ -389,7 +402,8 @@ const VIRT={
  BAT:{n:'Batería (adaptador)',u:'V',f:1},
  LPH:{n:'Consumo',u:'L/h',f:1,v:1},
  KML:{n:'Rendimiento',u:'km/L',f:1,v:1},
- ACC:{n:'Aceleración',u:'m/s²',f:1,v:1}
+ ACC:{n:'Aceleración',u:'m/s²',f:1,v:1},
+ CUT:{n:'Corte de inyección (estimado)',u:'',f:0,v:1}
 };
 function decode(pid,b){const p=PIDS[pid];if(!p)return null;if(p.t)return p.t(b[0]);if(p.dv)return p.dv(b[0],b[1]||0);return p.d(b[0])}
 function info(id){return VIRT[id]||PIDS[id]}
@@ -1041,14 +1055,40 @@ function setVal(id,v){
   const h=S.hist[id]||(S.hist[id]=[]);h.push(v);if(h.length>120)h.shift();
   const st=S.stats[id]||(S.stats[id]={min:v,max:v,sum:0,n:0});st.min=Math.min(st.min,v);st.max=Math.max(st.max,v);st.sum+=v;st.n++;
 }
+/* pie fuera del acelerador: pedal (49/5A), mariposa relativa (45) o mariposa absoluta cerca de su mínimo (11) */
+function footOff(){
+  const V=S.vals;
+  if(V[0x49]!=null)return V[0x49]<2;
+  if(V[0x5A]!=null)return V[0x5A]<2;
+  if(V[0x45]!=null)return V[0x45]<2;
+  if(V[0x11]!=null){S.thrMin=S.thrMin==null?V[0x11]:Math.min(S.thrMin,V[0x11]);return V[0x11]<=S.thrMin+2}
+  return false;
+}
+/* consumo: PID 5E si existe; si no aire (MAF o speed-density) / (14,7·λ) · (1+ajustes de combustible),
+   0 en corte de inyección (pie fuera + RPM altas + en movimiento) y factor de calibración con el estanque */
 function computeVirtual(){
-  const V=S.vals;let lph=null;
-  if(S.sup.has(0x5E)&&V[0x5E]!=null)lph=V[0x5E];
-  else{let maf=null;
-    if(S.sup.has(0x10)&&V[0x10]!=null)maf=V[0x10];
-    else if(V[0x0C]!=null&&V[0x0B]!=null&&V[0x0F]!=null){const imap=V[0x0C]*V[0x0B]/(V[0x0F]+273.15)/2;maf=imap/60*0.85*1.498*28.97/8.314}
-    if(maf!=null)lph=maf*3600/(14.7*745)}
-  if(lph!=null){setVal('LPH',lph);const sp=V[0x0D];if(sp!=null)setVal('KML',sp>3&&lph>0.05?Math.min(sp/lph,40):0)}
+  const V=S.vals;let lph=null,src='';
+  if(S.sup.has(0x5E)&&V[0x5E]!=null){lph=V[0x5E];src='ecu'}
+  else{
+    let maf=null;
+    if(S.sup.has(0x10)&&V[0x10]!=null){maf=V[0x10];src='maf'}
+    else if(V[0x0C]!=null&&V[0x0B]!=null&&V[0x0F]!=null){const imap=V[0x0C]*V[0x0B]/(V[0x0F]+273.15)/2;maf=imap/60*0.85*1.498*28.97/8.314;src='sd'}
+    if(maf!=null){
+      let afr=14.7;const lam=V[0x44];if(lam!=null&&lam>0.6&&lam<1.3)afr*=lam;
+      lph=maf*3600/(afr*745);
+      if(V[0x07]!=null)lph*=1+Math.max(-25,Math.min(25,(V[0x06]||0)+V[0x07]))/100;
+    }
+  }
+  if(lph!=null){
+    const cut=src!=='ecu'&&footOff()&&(V[0x0C]||0)>1400&&(V[0x0D]||0)>8;
+    if(cut)lph=0;
+    setVal('CUT',cut?1:0);
+    S.lphRaw=lph;
+    if(src!=='ecu')lph*=S.kcal;
+    S.lphE=S.lphE==null?lph:S.lphE*0.7+lph*0.3;
+    setVal('LPH',lph);
+    const sp=V[0x0D];if(sp!=null)setVal('KML',sp>3?(S.lphE>0.05?Math.min(sp/S.lphE,40):40):0);
+  }
 }
 function cardState(id,v){
   if(id===0x05)return v>105?'bad':v>99?'warn':'';
@@ -1093,7 +1133,7 @@ async function pollLoop(){
       }catch(e){bump(id)}
     }
     await slowRead();
-    computeVirtual();updateTrip();REC.tick();
+    computeVirtual();updateTrip();REC.tick();bubbleTick();
     if(S.rec)recordRow();
     renderCards();
     await housekeeping();
@@ -1176,15 +1216,18 @@ $('#cmdForm').onsubmit=async e=>{e.preventDefault();const c=$('#cmdIn').value.tr
 
 /* ---------- Viaje (calculado) ---------- */
 const T={d:0,t:0,idle:0,fuel:0,last:null,psp:null};
+const CAL=Object.assign({raw:0,km:0,start:Date.now(),saved:0},ls.get('obd_cal',{}));
+S.kcal=ls.get('obd_kcal',1);
 function fmtT(s){s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
 function resetTrip(){T.d=T.t=T.idle=T.fuel=0;T.last=null;T.psp=null;renderTrip()}
 function updateTrip(){
   const now=Date.now(),dt=T.last?(now-T.last)/1000:0;T.last=now;
   const sp=S.vals[0x0D],rpm=S.vals[0x0C],lph=S.vals.LPH;
   if(dt<=0||dt>2.5){T.psp=sp==null?null:sp;return}
-  if(sp!=null){T.d+=sp*dt/3600;if(T.psp!=null)setVal('ACC',(sp-T.psp)/3.6/dt);T.psp=sp}
+  if(sp!=null){T.d+=sp*dt/3600;if(S.mode==='real')CAL.km+=sp*dt/3600;if(T.psp!=null)setVal('ACC',(sp-T.psp)/3.6/dt);T.psp=sp}
   if(rpm!=null&&rpm>400){T.t+=dt;if((sp||0)<2)T.idle+=dt}
-  if(lph!=null)T.fuel+=lph*dt/3600;
+  if(lph!=null){T.fuel+=lph*dt/3600;if(S.mode==='real')CAL.raw+=(S.lphRaw||0)*dt/3600}
+  if(now-CAL.saved>10000){CAL.saved=now;ls.set('obd_cal',{raw:CAL.raw,km:CAL.km,start:CAL.start})}
   renderTrip();
 }
 function renderTrip(){
@@ -1430,7 +1473,7 @@ const REC={
     const s=this.s;if(!s)return;
     this.lastFlush=Date.now();const rows=this.buf,ev=this.evbuf;this.buf=[];this.evbuf=[];
     s.last=Date.now();s.vin=S.vin;s.trip={d:T.d,t:T.t,idle:T.idle,fuel:T.fuel};s.stats=JSON.parse(JSON.stringify(S.stats));
-    s.log=S.clog.slice(-150);s.fail=S.fail;s.unk=S.unk;
+    s.log=S.clog.slice(-150);s.fail=S.fail;s.unk=S.unk;s.light=!!S.light;s.full=!!S.full;s.kcal=S.kcal;
     try{if(rows.length)await DB.addRows('samples',rows);if(ev.length)await DB.addRows('events',ev);await DB.putSession(s)}catch(e){dlog('Error guardando: '+e.message,'er')}
     this.ui();
   },
@@ -1446,7 +1489,7 @@ const CQ={last:{}};
 S.full=ls.get('obd_full',true);
 try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch{}
 function slowList(){
-  if(!S.full)return [];
+  if(!S.full||S.light)return [];
   const fast=new Set(pollList());
   return [...S.sup].filter(p=>!SKIP.has(p)&&!fast.has(p)).sort((a,b)=>a-b);
 }
@@ -1470,7 +1513,7 @@ async function readDtcAll(){
   S.dtc=res;REC.event('dtc',res);renderDTC();return res;
 }
 async function housekeeping(){
-  const now=Date.now();if(now-hkT<30000)return;hkT=now;
+  const now=Date.now();if(now-hkT<(S.light?60000:30000))return;hkT=now;
   try{
     const b=parse01(await elm.send('0101',3000),1)[0];if(!b)return;
     const mil=!!(b[0]&0x80),cnt=b[0]&0x7F;
@@ -1479,7 +1522,7 @@ async function housekeeping(){
 }
 /* chequeos programados dentro del ciclo de lectura (uno por vuelta, sin chocar con las lecturas en vivo) */
 async function checkups(){
-  const s=REC.s;if(!s||!S.polling)return;
+  const s=REC.s;if(!s||!S.polling||S.light)return;
   const now=Date.now(),age=now-s.start;
   const due=(k,every,first)=>CQ.last[k]==null?age>=first:now-CQ.last[k]>=every;
   const mark=k=>{CQ.last[k]=Date.now()};
@@ -1737,6 +1780,56 @@ $('#bAiAll').onclick=async()=>{
   navigator.clipboard.writeText(t).then(()=>{$('#tSt').textContent='Resumen copiado. Pégalo en Claude.'},()=>{$('#tSt').textContent='Selecciona el texto y cópialo.'});
 };
 $('#bShareAll').onclick=()=>{const t=$('#tText').value;if(t)saveText('resumen_global_'+stamp()+'.txt',t,'text/plain','Resumen global OBD')};
+
+/* ---------- Calibración de consumo ---------- */
+function renderCal(){
+  kv($('#calKv'),[['Factor actual',S.kcal.toFixed(3)+(Math.abs(S.kcal-1)<0.0005?' (sin calibrar)':'')],['Tramo iniciado',new Date(CAL.start).toLocaleDateString('es-CL')],['Distancia del tramo',CAL.km.toFixed(1)+' km'],['Combustible estimado (sin calibrar)',CAL.raw.toFixed(2)+' L'],['Rendimiento sin calibrar',CAL.raw>0.05?(CAL.km/CAL.raw).toFixed(1)+' km/L':'—']]);
+}
+const calSave=()=>ls.set('obd_cal',{raw:CAL.raw,km:CAL.km,start:CAL.start});
+$('#calStart').onclick=()=>{CAL.raw=0;CAL.km=0;CAL.start=Date.now();calSave();renderCal();$('#calSt').textContent='Tramo iniciado. Maneja con la app conectada hasta el próximo llenado.'};
+$('#calEnd').onclick=()=>{
+  const L=parseFloat($('#calL').value),st=$('#calSt');
+  if(!(L>0)){st.textContent='Ingresa los litros que cargaste.';return}
+  if(CAL.km<20||CAL.raw<0.3){st.textContent='El tramo es muy corto ('+CAL.km.toFixed(1)+' km). Maneja al menos 20 km (ideal 100 km o más) con la app conectada.';return}
+  const k=Math.max(0.5,Math.min(1.8,L/CAL.raw));
+  S.kcal=k;ls.set('obd_kcal',k);
+  st.textContent='Consumo real del tramo: '+(CAL.km/L).toFixed(1)+' km/L ('+CAL.km.toFixed(0)+' km, '+L.toFixed(1)+' L). Factor de calibración: '+k.toFixed(3)+'. Se inició un tramo nuevo.';
+  CAL.raw=0;CAL.km=0;CAL.start=Date.now();calSave();$('#calL').value='';renderCal();
+};
+$('#calReset').onclick=()=>{S.kcal=1;ls.set('obd_kcal',1);renderCal();$('#calSt').textContent='Calibración eliminada.'};
+renderCal();setInterval(renderCal,5000);
+
+/* ---------- Modo liviano y burbuja flotante ---------- */
+S.light=ls.get('obd_light',false);
+$('#lightOn').checked=S.light;
+$('#lightOn').onchange=e=>{S.light=e.target.checked;ls.set('obd_light',S.light);REC.event('modo',{liviano:S.light})};
+S.bubble=false;
+const bubbleCan=async()=>{try{return !!(await plug('Spp').overlayCanDraw()).value}catch{return false}};
+async function bubbleInit(){
+  if(!isNative()){$('#bubRow').hidden=true;$('#bubSt').hidden=true;return}
+  const want=ls.get('obd_bubble',false);$('#bubOn').checked=want;
+  if(!want)return;
+  const ok=await bubbleCan();S.bubble=ok;
+  try{await plug('Spp').overlayEnable({on:ok})}catch{}
+  $('#bubSt').textContent=ok?'Activa: aparece al salir de la app. Arrástrala; tócala para volver.':'Falta el permiso "Mostrar sobre otras apps" para Tablero OBD.';
+}
+$('#bubOn').onchange=async e=>{
+  const on=e.target.checked;ls.set('obd_bubble',on);
+  if(!on){S.bubble=false;try{await plug('Spp').overlayEnable({on:false})}catch{}$('#bubSt').textContent='';return}
+  if(await bubbleCan()){S.bubble=true;await plug('Spp').overlayEnable({on:true});$('#bubSt').textContent='Activa: aparece al salir de la app. Arrástrala; tócala para volver.'}
+  else{$('#bubSt').textContent='Android abrirá Ajustes: activa "Mostrar sobre otras apps" para Tablero OBD y vuelve a la app.';try{await plug('Spp').overlayRequest()}catch(er){dlog('Ajustes de superposición: '+(er.message||er),'er')}}
+};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&isNative()&&$('#bubOn').checked&&!S.bubble)bubbleInit()});
+bubbleInit();
+let bubT=0;
+function bubbleTick(){
+  if(!isNative()||!S.bubble)return;
+  const now=Date.now();if(now-bubT<1000)return;bubT=now;
+  const V=S.vals,f=(id,d=0)=>V[id]==null?'—':V[id].toFixed(d);
+  const kml=V[0x0D]>3&&V.KML!=null?V.KML.toFixed(1)+' km/L':(V.LPH!=null?V.LPH.toFixed(1)+' L/h':'—');
+  let state='';for(const id of ALERT_IDS){const v=V[id];if(v==null)continue;const st=cardState(id,v);if(st==='bad'){state='bad';break}if(st==='warn')state='warn'}
+  try{plug('Spp').overlayUpdate({l1:f(0x0D)+' km/h · '+f(0x0C)+' rpm',l2:'Temp '+f(5)+'° · '+f('BAT',1)+' V · '+kml,l3:'Viaje '+T.d.toFixed(1)+' km · '+(T.fuel>0.02&&T.d>0.1?(T.d/T.fuel).toFixed(1)+' km/L':'— km/L'),state}).catch(()=>{})}catch{}
+}
 
 window.addEventListener('resize',()=>renderCards());
 const BUILD='__BUILD__';
