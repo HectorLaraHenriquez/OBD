@@ -27,6 +27,15 @@ Chrome en Android soporta **Web Bluetooth** solo para BLE, lo que calza con el i
 - `CLAUDE.md` — este documento.
 - `CAPACIDADES.md` — qué datos se pueden extraer del auto y cuáles no.
 - `OLD/` — versiones anteriores de `index.html`.
+- `package.json`, `capacitor.config.json`, `ci/debug.keystore`, `.github/workflows/android.yml` — empaquetado de la app Android (ver más abajo).
+
+## App Android (Capacitor)
+
+Chrome no logró conectar con el iCar2 (el adaptador corta el GATT al descubrir servicios). Se empaqueta el mismo `index.html` como app Android con Capacitor y el plugin `@capacitor-community/bluetooth-le` (`class BleNative`, se usa solo dentro de la app; en navegador se usa `class Ble`).
+- GitHub Actions (`android.yml`) copia `index.html` a `www/`, genera `android/` (`cap add android`), compila el APK de depuración y lo publica en el release `apk-latest`: `https://github.com/HectorLaraHenriquez/OBD/releases/tag/apk-latest`.
+- `ci/debug.keystore` es una llave **solo de depuración** (contraseña `android`) para que cada APK se instale como actualización sin desinstalar. No usar para publicar en Play Store.
+- En la app, "Descargar informe"/"CSV" abren la hoja de compartir (plugin Share).
+- Instalar: descargar el APK en el teléfono y permitir "instalar apps desconocidas".
 
 ## Arquitectura de `index.html`
 

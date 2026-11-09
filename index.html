@@ -395,6 +395,59 @@ class Ble{
   close(){try{this.dev.gatt.disconnect()}catch{}}
 }
 
+/* ---------- Transporte BLE nativo (app Android con Capacitor) ---------- */
+const isNative=()=>!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
+const plug=n=>(window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins[n])||Capacitor.registerPlugin(n);
+const toHex=u8=>[...u8].map(hx).join('');
+const fromHex=h=>{const b=[];for(let i=0;i+1<(h||'').length;i+=2)b.push(parseInt(h.substr(i,2),16));return new TextDecoder().decode(new Uint8Array(b))};
+class BleNative{
+  async open(onData,onDrop,log=()=>{}){
+    const B=this.B=plug('BluetoothLe');
+    log('App nativa: iniciando Bluetooth…');
+    await B.initialize();
+    log('Abriendo lista de dispositivos…');
+    const d=await B.requestDevice({optionalServices:SVC});
+    this.id=d.deviceId;this.name=d.name||'Adaptador';
+    log('Elegido: '+(d.name||'(sin nombre)')+' · '+this.id);
+    let bonded=false;
+    try{bonded=!!(await B.isBonded({deviceId:this.id})).value}catch(e){log('  isBonded: '+e.message)}
+    log('Vinculado en Android: '+(bonded?'sí':'no'));
+    if(!bonded){try{log('Solicitando vinculación (si Android pide código, ingrésalo: prueba 1234)…');await B.createBond({deviceId:this.id});log('Vinculación lista')}catch(e){log('  createBond: '+e.message)}}
+    await B.addListener('disconnected|'+this.id,()=>{log('Evento disconnected: el adaptador cortó la conexión');onDrop()});
+    for(let a=1;a<=3;a++){
+      try{log('Conectando, intento '+a+'/3…');await B.connect({deviceId:this.id,timeout:15000});log('Conectado');break}
+      catch(e){log('  falló: '+e.message);if(a===3)throw e;await sleep(1200)}
+    }
+    const {services}=await B.getServices({deviceId:this.id});
+    log('Servicios encontrados: '+services.length);
+    const rank=u=>{const i=SVC.indexOf(u.toLowerCase());return i<0?99:i};
+    for(const s of [...services].sort((x,y)=>rank(x.uuid)-rank(y.uuid))){
+      log('  Servicio '+s.uuid);let rx=null,tx=null;
+      for(const c of s.characteristics){const p=c.properties;log('    característica '+c.uuid+' ['+['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]).join('+')+']');if((p.notify||p.indicate)&&!rx)rx=c;if((p.write||p.writeWithoutResponse)&&!tx)tx=c}
+      if(rx&&tx){this.svc=s.uuid;this.rxc=rx.uuid;this.txc=tx.uuid;this.nowr=!!tx.properties.writeWithoutResponse;break}
+    }
+    if(!this.svc)throw new Error('No encontré el canal de datos del adaptador (ningún servicio con notificación y escritura).');
+    log('Canal elegido: servicio '+this.svc+' · RX '+this.rxc+' · TX '+this.txc);
+    await B.addListener('notification|'+this.id+'|'+this.svc+'|'+this.rxc,ev=>onData(fromHex(ev&&ev.value)));
+    await B.startNotifications({deviceId:this.id,service:this.svc,characteristic:this.rxc});
+    log('Notificaciones activadas');
+  }
+  async write(s){
+    const d=new TextEncoder().encode(s);
+    for(let i=0;i<d.length;i+=20){
+      const o={deviceId:this.id,service:this.svc,characteristic:this.txc,value:toHex(d.slice(i,i+20))};
+      if(this.nowr)await this.B.writeWithoutResponse(o);else await this.B.write(o);
+    }
+  }
+  close(){try{this.B.disconnect({deviceId:this.id}).catch(()=>{})}catch{}}
+}
+/* guarda o comparte un texto (descarga en web, hoja de compartir en la app) */
+async function saveText(name,text,mime,title){
+  if(isNative()){try{await plug('Share').share({title:title||name,text});return}catch(e){if(/cancel/i.test(e.message||''))return}}
+  const blob=new Blob(['\ufeff'+text],{type:mime});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+}
+
 /* ---------- Simulador ---------- */
 class Sim{
   constructor(){this.t0=Date.now();this.name='Demo';this.h=0;this.hdr='7DF';this.sup=new Set([0x01,0x03,0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0E,0x0F,0x11,0x13,0x14,0x15,0x1C,0x1F,0x20,0x21,0x2E,0x30,0x31,0x33,0x3C,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x49,0x4A,0x4C])}
@@ -595,14 +648,14 @@ function onDrop(){
 }
 
 $('#bConnect').onclick=async()=>{
-  if(!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
-  const tr=new Ble();tr.all=$('#allDev').checked;ls.set('obd_all',tr.all);
+  if(!isNative()&&!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
+  const tr=isNative()?new BleNative():new Ble();tr.all=$('#allDev').checked;ls.set('obd_all',tr.all);
   try{await connectWith(tr,'real')}
   catch(e){
     dlog('ERROR '+e.name+': '+e.message,'er');
     try{tr.close()}catch{}
     toIdle();
-    if(e.name==='NotFoundError'&&/chooser|cancel/i.test(e.message)){banner('Conexión cancelada. Si no veías el adaptador en la lista, marca <i>Mostrar todos</i> y reintenta.');return}
+    if((e.name==='NotFoundError'||isNative())&&/chooser|cancel/i.test(e.message)){banner('Conexión cancelada. Si no veías el adaptador en la lista, marca <i>Mostrar todos</i> y reintenta.');return}
     let hint=e.message;
     if(e.name==='SecurityError'||/permission|policy|allowed/i.test(e.message))hint='Esta vista no permite Bluetooth. Abre la página en Chrome para Android, con ubicación activada.';
     else if(e.name==='NetworkError'||/GATT/i.test(e.message))hint='No se pudo abrir el enlace con el adaptador. Causas típicas: otra app conectada (cierra Car Scanner), adaptador dormido (desenchúfalo y vuelve a enchufarlo con contacto dado) o demasiado lejos.';
@@ -787,8 +840,7 @@ $('#bCsv').onclick=()=>{
   const ids=S.watch.filter(id=>S.rows.some(r=>r[id]!=null));
   const head=['fecha_hora',...ids.map(id=>{const p=info(id);return (p.n+(p.u?' ('+p.u+')':'')).replace(/,/g,'')})];
   const body=S.rows.map(r=>[r.t,...ids.map(id=>r[id]!=null?(+r[id]).toFixed(3):'')].join(','));
-  const blob=new Blob(['﻿'+head.join(',')+'\n'+body.join('\n')],{type:'text/csv'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='obd_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove();
+  saveText('obd_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv',head.join(',')+'\n'+body.join('\n'),'text/csv','Registro OBD');
 };
 $('#bSum').onclick=()=>{
   const L=[];L.push('Vehículo: MG GT 1.5 manual (primera generación)'+(S.mode==='demo'?' — DATOS DE DEMOSTRACIÓN':''));
@@ -985,13 +1037,12 @@ function reportText(){
 }
 $('#bRepDl').onclick=()=>{
   $('#bSum').onclick();
-  const blob=new Blob(['﻿'+$('#sum').value],{type:'text/plain'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='informe_obd_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';document.body.appendChild(a);a.click();a.remove();
+  saveText('informe_obd_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt',$('#sum').value,'text/plain','Informe OBD');
 };
 
 window.addEventListener('resize',()=>renderCards());
 S.watch=S.watch||DEF_WATCH.slice();
-$('#allDev').checked=ls.get('obd_all',false);
+$('#allDev').checked=ls.get('obd_all',false);if(isNative())$('#allDev').parentElement.hidden=true;
 $('#cards').innerHTML='<p class="muted">Conecta el adaptador para ver datos en vivo.</p>';
 toIdle();
 banner('Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>. <i>Ver demo</i> muestra datos simulados.');
