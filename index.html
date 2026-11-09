@@ -405,7 +405,7 @@ class BleNative{
     const B=this.B=plug('BluetoothLe');
     log('App nativa: iniciando Bluetooth…');
     await B.initialize();
-    log('Abriendo lista de dispositivos…');
+    log('Buscando adaptador vinculado…');
     const d=await pickNative(B,log);
     this.id=d.deviceId;this.name=d.name||'Adaptador';
     if(d.bonded){
@@ -465,6 +465,10 @@ function pickNative(B,log){
     let bonded=[];try{bonded=(await B.getBondedDevices()).devices||[]}catch(e){log('  getBondedDevices: '+e.message)}
     log('Vinculados en Android: '+(bonded.map(d=>(d.name||'sin nombre')+' '+d.deviceId).join('; ')||'ninguno'));
     const bm=new Map(bonded.map(d=>[d.deviceId,d]));
+    if(!$('#allDev').checked){
+      const cand=(last&&bm.get(last.id))||bonded.find(d=>/v-?link|icar|vgate|obd|elm/i.test(d.name||''));
+      if(cand){log('Conexión automática al adaptador vinculado: '+(cand.name||'sin nombre')+' · '+cand.deviceId);ov.remove();ls.set('obd_dev',{id:cand.deviceId,name:cand.name||''});resolve({deviceId:cand.deviceId,name:cand.name,bonded:true});return}
+    }
     const known=r=>{const n=(r.localName||r.device.name||'');return (r.uuids||[]).some(u=>SVC.includes(String(u).toLowerCase()))||/v-?link|icar|vgate|obd|elm|vlink/i.test(n)};
     const stop=async()=>{clearInterval(tm);try{h&&await h.remove()}catch{}try{await B.stopLEScan()}catch{}};
     const finish=async(fn)=>{if(done)return;done=true;await stop();ov.remove();fn()};
@@ -1099,7 +1103,7 @@ $('#bRepDl').onclick=()=>{
 
 window.addEventListener('resize',()=>renderCards());
 S.watch=S.watch||DEF_WATCH.slice();
-$('#allDev').checked=ls.get('obd_all',false);if(isNative())$('#allDev').parentElement.hidden=true;
+$('#allDev').checked=ls.get('obd_all',false);if(isNative())$('#allDev').parentElement.lastChild.textContent='Elegir dispositivo';
 $('#cards').innerHTML='<p class="muted">Conecta el adaptador para ver datos en vivo.</p>';
 toIdle();
 banner('Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>. <i>Ver demo</i> muestra datos simulados.');
