@@ -34,7 +34,8 @@ Chrome en Android soporta **Web Bluetooth** solo para BLE, lo que calza con el i
 Chrome no logró conectar con el iCar2 (el adaptador corta el GATT al descubrir servicios). Se empaqueta el mismo `index.html` como app Android con Capacitor y el plugin `@capacitor-community/bluetooth-le` (`class BleNative`, se usa solo dentro de la app; en navegador se usa `class Ble`).
 - GitHub Actions (`android.yml`) copia `index.html` a `www/`, genera `android/` (`cap add android`), compila el APK de depuración y lo publica en el release `apk-latest`: `https://github.com/HectorLaraHenriquez/OBD/releases/tag/apk-latest`.
 - `ci/debug.keystore` es una llave **solo de depuración** (contraseña `android`) para que cada APK se instale como actualización sin desinstalar. No usar para publicar en Play Store.
-- En la app, "Descargar informe"/"CSV" abren la hoja de compartir (plugin Share).
+- En la app, exportar (informe, CSV, JSON) escribe un archivo en caché con `@capacitor/filesystem` y abre la hoja de compartir (`@capacitor/share`); si falla, comparte texto recortado.
+- Bluetooth: dispositivos vinculados en Android se conectan por Bluetooth clásico (SPP, plugin propio `android-src/SppPlugin.java`); los demás por BLE. Conexión automática al V-LINK vinculado; casilla "Elegir dispositivo" muestra la lista.
 - Instalar: descargar el APK en el teléfono y permitir "instalar apps desconocidas".
 
 ## Arquitectura de `index.html`
@@ -70,7 +71,9 @@ Nombre en español, categoría, unidad y fórmula de decodificación para ~40 PI
 3. **Fallas:** códigos con descripción (diccionario `DTC_DB` de ~50 códigos genéricos) y severidad; borrado (`04`) con confirmación en dos pasos; monitores de emisiones.
 4. **Registro:** grabar viaje y exportar CSV; "Resumen para IA" (texto para pegar en Claude con VIN, fallas, monitores y min/prom/máx de cada parámetro).
 5. **Escáner:** escaneo completo de solo lectura: adaptador, modo 09 (VIN/calibración/CVN), modo 02 (datos congelados), modo 06 (autopruebas), sondeo de módulos por UDS (`3E00`, `22 F1xx`, `19 02`) rápido (7E0–7E7, 7A0–7BF) o ampliado (700–7DE). Informe descargable `.txt` (usa el resumen para IA).
-6. **Consola:** comandos ELM327 directos; pausa la lectura en vivo.
+6. **Historial:** grabación automática de cada conexión (`REC`, IndexedDB `obd_tracker`: `sessions`, `samples` 1 fila/s con todos los valores, `events` de alertas/fallas/estado). Lista de viajes, detalle con 8 gráficos por grupo, hallazgos automáticos (`flagsFor`), exportación CSV/JSON/resumen para IA y exportación total. Lectura "completa": además del tablero lee 2 PIDs lentos por ciclo (`slowRead`); cada 30 s revisa `0101` y lee fallas si cambian (`housekeeping`). Pausa filas si el motor lleva >10 min apagado. Demo solo se graba con `localStorage.obd_rec_demo`.
+7. **Tendencias:** totales y gráficos por viaje (km/L, km, ajuste largo plazo, voltaje, temperatura máx, ralentí), hallazgos y resumen global para IA.
+8. **Consola:** comandos ELM327 directos; pausa la lectura en vivo.
 
 Diseño: tokens CSS, dark-first con tema claro, fuentes Barlow Condensed / IBM Plex Sans / IBM Plex Mono, responsive para móvil.
 
