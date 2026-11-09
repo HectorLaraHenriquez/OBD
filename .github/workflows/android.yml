@@ -2,7 +2,7 @@ name: Android APK
 on:
   push:
     branches: [main, 'claude/**']
-    paths: [index.html, package.json, capacitor.config.json, 'ci/**', '.github/workflows/android.yml']
+    paths: [index.html, 'android-src/**', package.json, capacitor.config.json, 'ci/**', '.github/workflows/android.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -22,6 +22,8 @@ jobs:
       - run: mkdir -p www && cp index.html www/
       - run: npx cap add android
       - run: npx cap sync android
+      - name: Plugin SPP (Bluetooth clásico)
+        run: cp android-src/*.java android/app/src/main/java/cl/hector/tablero/obd/
       - name: Versión y firma debug estable
         run: |
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle

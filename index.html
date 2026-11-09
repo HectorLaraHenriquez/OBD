@@ -408,6 +408,16 @@ class BleNative{
     log('Abriendo lista de dispositivos…');
     const d=await pickNative(B,log);
     this.id=d.deviceId;this.name=d.name||'Adaptador';
+    if(d.bonded){
+      this.classic=true;const P=this.P=plug('Spp');
+      log('Elegido (clásico): '+this.name+' · '+this.id);
+      await P.addListener('data',ev=>onData(ev&&ev.value||''));
+      await P.addListener('disconnected',()=>{log('Evento disconnected (clásico): el adaptador cortó la conexión');onDrop()});
+      log('Abriendo socket Bluetooth clásico (SPP)…');
+      await P.connect({address:this.id});
+      this.svc='SPP clásico';log('Socket SPP abierto');
+      return;
+    }
     log('Elegido: '+(d.name||'(sin nombre)')+' · '+this.id);
     let bonded=false;
     try{bonded=!!(await B.isBonded({deviceId:this.id})).value}catch(e){log('  isBonded: '+e.message)}
@@ -433,13 +443,14 @@ class BleNative{
     log('Notificaciones activadas');
   }
   async write(s){
+    if(this.classic){await this.P.write({value:s});return}
     const d=new TextEncoder().encode(s);
     for(let i=0;i<d.length;i+=20){
       const o={deviceId:this.id,service:this.svc,characteristic:this.txc,value:toHex(d.slice(i,i+20))};
       if(this.nowr)await this.B.writeWithoutResponse(o);else await this.B.write(o);
     }
   }
-  close(){try{this.B.disconnect({deviceId:this.id}).catch(()=>{})}catch{}}
+  close(){try{if(this.classic)this.P.disconnect().catch(()=>{});else this.B.disconnect({deviceId:this.id}).catch(()=>{})}catch{}}
 }
 
 /* lista propia de dispositivos BLE (app nativa): nombre, MAC, señal y servicios anunciados */
@@ -448,7 +459,7 @@ function pickNative(B,log){
     const found=new Map(),last=ls.get('obd_dev',null);
     const ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.75);display:grid;place-items:center;padding:16px';
-    ov.innerHTML='<div class="panel" style="max-width:520px;width:100%;max-height:85vh;overflow:auto"><h2>Elige el adaptador</h2><p class="muted" style="font-size:13px">Pega el teléfono al iCar2: el que tenga la señal más fuerte (número menos negativo, ej. −45) suele ser el adaptador. ★ = anuncia servicios o nombre de adaptador OBD. 🔗 = ya vinculado en Android (si lo vinculaste con Car Scanner, el iCar2 debería estar aquí).</p><div id="pkList" style="display:grid;gap:6px"></div><div class="row"><button class="btn" id="pkRe" type="button">Escanear de nuevo</button><button class="btn" id="pkX" type="button">Cancelar</button><span class="grow" id="pkN">Buscando…</span></div></div>';
+    ov.innerHTML='<div class="panel" style="max-width:520px;width:100%;max-height:85vh;overflow:auto"><h2>Elige el adaptador</h2><p class="muted" style="font-size:13px">Pega el teléfono al iCar2: el que tenga la señal más fuerte (número menos negativo, ej. −45) suele ser el adaptador. ★ = anuncia servicios o nombre de adaptador OBD. 🔗 = vinculado en Android: se conecta por <b>Bluetooth clásico</b> (el que pide código). Los demás se conectan por BLE.</p><div id="pkList" style="display:grid;gap:6px"></div><div class="row"><button class="btn" id="pkRe" type="button">Escanear de nuevo</button><button class="btn" id="pkX" type="button">Cancelar</button><span class="grow" id="pkN">Buscando…</span></div></div>';
     document.body.appendChild(ov);
     const list=ov.querySelector('#pkList');let h=null,tm=null,done=false;
     let bonded=[];try{bonded=(await B.getBondedDevices()).devices||[]}catch(e){log('  getBondedDevices: '+e.message)}
@@ -469,7 +480,7 @@ function pickNative(B,log){
         const t2=document.createElement('span');t2.className='muted';t2.style.cssText='font-size:11px;font-family:var(--mono);font-weight:400';
         t2.textContent=r.device.deviceId+((r.uuids&&r.uuids.length)?' · '+r.uuids.map(u=>String(u).slice(0,8)).join(' '):'');
         b.append(t1,t2);
-        b.onclick=()=>finish(()=>{ls.set('obd_dev',{id:r.device.deviceId,name:nm});resolve({deviceId:r.device.deviceId,name:r.localName||r.device.name})});
+        b.onclick=()=>finish(()=>{ls.set('obd_dev',{id:r.device.deviceId,name:nm});resolve({deviceId:r.device.deviceId,name:r.localName||r.device.name,bonded:!!r._b})});
         list.appendChild(b);
       }
     };
