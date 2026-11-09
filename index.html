@@ -448,20 +448,24 @@ function pickNative(B,log){
     const found=new Map(),last=ls.get('obd_dev',null);
     const ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.75);display:grid;place-items:center;padding:16px';
-    ov.innerHTML='<div class="panel" style="max-width:520px;width:100%;max-height:85vh;overflow:auto"><h2>Elige el adaptador</h2><p class="muted" style="font-size:13px">Pega el teléfono al iCar2: el que tenga la señal más fuerte (número menos negativo, ej. −45) suele ser el adaptador. ★ = anuncia servicios o nombre de adaptador OBD.</p><div id="pkList" style="display:grid;gap:6px"></div><div class="row"><button class="btn" id="pkRe" type="button">Escanear de nuevo</button><button class="btn" id="pkX" type="button">Cancelar</button><span class="grow" id="pkN">Buscando…</span></div></div>';
+    ov.innerHTML='<div class="panel" style="max-width:520px;width:100%;max-height:85vh;overflow:auto"><h2>Elige el adaptador</h2><p class="muted" style="font-size:13px">Pega el teléfono al iCar2: el que tenga la señal más fuerte (número menos negativo, ej. −45) suele ser el adaptador. ★ = anuncia servicios o nombre de adaptador OBD. 🔗 = ya vinculado en Android (si lo vinculaste con Car Scanner, el iCar2 debería estar aquí).</p><div id="pkList" style="display:grid;gap:6px"></div><div class="row"><button class="btn" id="pkRe" type="button">Escanear de nuevo</button><button class="btn" id="pkX" type="button">Cancelar</button><span class="grow" id="pkN">Buscando…</span></div></div>';
     document.body.appendChild(ov);
     const list=ov.querySelector('#pkList');let h=null,tm=null,done=false;
+    let bonded=[];try{bonded=(await B.getBondedDevices()).devices||[]}catch(e){log('  getBondedDevices: '+e.message)}
+    log('Vinculados en Android: '+(bonded.map(d=>(d.name||'sin nombre')+' '+d.deviceId).join('; ')||'ninguno'));
+    const bm=new Map(bonded.map(d=>[d.deviceId,d]));
     const known=r=>{const n=(r.localName||r.device.name||'');return (r.uuids||[]).some(u=>SVC.includes(String(u).toLowerCase()))||/v-?link|icar|vgate|obd|elm|vlink/i.test(n)};
     const stop=async()=>{clearInterval(tm);try{h&&await h.remove()}catch{}try{await B.stopLEScan()}catch{}};
     const finish=async(fn)=>{if(done)return;done=true;await stop();ov.remove();fn()};
     const render=()=>{
-      const rows=[...found.values()].sort((a,b)=>(known(b)-known(a))||((b.rssi??-999)-(a.rssi??-999)));
-      ov.querySelector('#pkN').textContent=rows.length+' dispositivos';
+      const sc=[...found.values()].filter(r=>!bm.has(r.device.deviceId)).sort((a,b)=>(known(b)-known(a))||((b.rssi??-999)-(a.rssi??-999)));
+      const rows=[...bonded.map(d=>Object.assign({},found.get(d.deviceId)||{},{device:d,_b:1})),...sc];
+      ov.querySelector('#pkN').textContent=bonded.length+' vinculados · '+found.size+' cercanos';
       list.innerHTML='';
       for(const r of rows){
         const b=document.createElement('button');b.type='button';b.className='btn';b.style.cssText='text-align:left;display:grid;gap:2px';
         const nm=r.localName||r.device.name||'Sin nombre';
-        const t1=document.createElement('span');t1.textContent=(known(r)?'★ ':'')+nm+(last&&last.id===r.device.deviceId?' · último usado':'')+'  ·  '+(r.rssi!=null?r.rssi+' dBm':'? dBm');
+        const t1=document.createElement('span');t1.textContent=(r._b?'🔗 ':'')+(known(r)?'★ ':'')+nm+(r._b?' · vinculado':'')+(last&&last.id===r.device.deviceId?' · último usado':'')+'  ·  '+(r.rssi!=null?r.rssi+' dBm':'? dBm');
         const t2=document.createElement('span');t2.className='muted';t2.style.cssText='font-size:11px;font-family:var(--mono);font-weight:400';
         t2.textContent=r.device.deviceId+((r.uuids&&r.uuids.length)?' · '+r.uuids.map(u=>String(u).slice(0,8)).join(' '):'');
         b.append(t1,t2);
