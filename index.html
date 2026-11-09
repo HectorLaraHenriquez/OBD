@@ -56,8 +56,8 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid
 .btn[disabled]{opacity:.45;cursor:not-allowed}
 
 .tabs{background:var(--panel);border-bottom:1px solid var(--line)}
-.tabs .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
-.tab{background:none;border:0;color:var(--muted);padding:10px 12px;font-weight:600;font-size:14px;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs .wrap{display:flex;flex-wrap:wrap;gap:0 2px}
+.tab{background:none;border:0;color:var(--muted);padding:9px 10px;font-weight:600;font-size:14px;border-bottom:2px solid transparent;white-space:nowrap}
 .tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
 
 main .wrap{padding-block:18px 32px;display:grid;gap:18px}
