@@ -407,7 +407,10 @@ const VIRT={
  ACC:{n:'Aceleración',u:'m/s²',f:1,v:1},
  CUT:{n:'Corte de inyección (estimado)',u:'',f:0,v:1},
  LSD:{n:'Consumo por presión del colector',u:'L/h',f:2,v:1},
- LLD:{n:'Consumo por carga del motor',u:'L/h',f:2,v:1}
+ LLD:{n:'Consumo por carga del motor',u:'L/h',f:2,v:1},
+ FLP:{n:'Nivel del estanque',u:'%',f:0,v:1},
+ FLV:{n:'Combustible en el estanque',u:'L',f:1,v:1},
+ RNG:{n:'Autonomía',u:'km',f:0,v:1}
 };
 function decode(pid,b){const p=PIDS[pid];if(!p)return null;if(p.t)return p.t(b[0]);if(p.dv)return p.dv(b[0],b[1]||0);return p.d(b[0])}
 function info(id){return VIRT[id]||PIDS[id]}
@@ -712,8 +715,8 @@ function parseDTC(r,mode){
 function parseVIN(r){const ls_=lines(r);let s=ls_.filter(l=>/^[0-9A-F]:/.test(l)).map(l=>l.slice(2)).join('');if(!s)s=ls_.join('');const i=s.indexOf('4902');if(i<0)return null;let t='';for(const c of bytesOf(s.slice(i+6)))if(c>=48&&c<=90)t+=String.fromCharCode(c);return t.length>=17?t.slice(-17):(t||null)}
 
 /* ---------- Estado ---------- */
-const DEF_WATCH=[0x0C,0x0D,0x05,0x04,0x11,0x0B,0x10,0x0F,0x06,0x07,0x0E,'BAT','LPH','KML'];
-const S={mode:'demo',sup:new Set(),isCAN:true,proto:'—',vin:null,watch:ls.get('obd_watch',null),vals:{},hist:{},stats:{},polling:false,rec:false,rows:[],dtc:null,mon:null,reads:0,t0:Date.now(),rep:{},snap:{},alertSt:{},clog:[],fail:{},unk:{},wantConn:false,cancelScan:false,busy:false};
+const DEF_WATCH=[0x0C,0x0D,0x05,0x04,0x11,0x0B,0x10,0x0F,0x06,0x07,0x0E,'BAT','LPH','KML','FLP','FLV','RNG'];
+const S={mode:'demo',sup:new Set(),isCAN:true,proto:'—',vin:null,watch:ls.get('obd_watch',null),vals:{},hist:{},stats:{},polling:false,rec:false,rows:[],dtc:null,mon:null,reads:0,t0:Date.now(),rep:{},snap:{},alertSt:{},clog:[],fail:{},unk:{},lvlBuf:[],lvl:null,wantConn:false,cancelScan:false,busy:false};
 
 const DTC_DB={P0100:'Circuito del sensor MAF',P0101:'Sensor MAF fuera de rango',P0105:'Circuito del sensor MAP',P0106:'Sensor MAP fuera de rango',P0107:'Sensor MAP señal baja',P0108:'Sensor MAP señal alta',P0110:'Circuito sensor temperatura de admisión',P0112:'Temperatura de admisión señal baja',P0113:'Temperatura de admisión señal alta',P0115:'Circuito sensor temperatura refrigerante',P0116:'Sensor temperatura refrigerante fuera de rango',P0117:'Temperatura refrigerante señal baja',P0118:'Temperatura refrigerante señal alta',P0120:'Circuito sensor posición mariposa',P0121:'Sensor posición mariposa fuera de rango',P0128:'Termostato: el motor no alcanza temperatura',P0130:'Circuito sensor O2 B1S1',P0131:'Sensor O2 B1S1 voltaje bajo',P0132:'Sensor O2 B1S1 voltaje alto',P0133:'Sensor O2 B1S1 respuesta lenta',P0134:'Sensor O2 B1S1 sin actividad',P0135:'Calefactor sensor O2 B1S1',P0136:'Circuito sensor O2 B1S2',P0137:'Sensor O2 B1S2 voltaje bajo',P0138:'Sensor O2 B1S2 voltaje alto',P0141:'Calefactor sensor O2 B1S2',P0171:'Mezcla demasiado pobre B1',P0172:'Mezcla demasiado rica B1',P0300:'Fallo de encendido aleatorio',P0301:'Fallo de encendido cilindro 1',P0302:'Fallo de encendido cilindro 2',P0303:'Fallo de encendido cilindro 3',P0304:'Fallo de encendido cilindro 4',P0325:'Circuito sensor de detonación',P0335:'Sensor posición cigüeñal',P0340:'Sensor posición árbol de levas',P0420:'Eficiencia del catalizador bajo el umbral',P0442:'Fuga pequeña en sistema EVAP',P0443:'Circuito válvula de purga EVAP',P0455:'Fuga grande en sistema EVAP',P0456:'Fuga muy pequeña en sistema EVAP',P0500:'Sensor de velocidad del vehículo',P0505:'Sistema de control de ralentí',P0506:'Ralentí más bajo de lo esperado',P0507:'Ralentí más alto de lo esperado',P0562:'Voltaje del sistema bajo',P0563:'Voltaje del sistema alto',P0601:'Error de memoria del computador',P0650:'Circuito de la luz check engine'};
 const SYS={'1':'Medición de aire y combustible','2':'Medición de aire y combustible (inyectores)','3':'Encendido o fallos de encendido','4':'Control de emisiones auxiliares','5':'Velocidad, ralentí y entradas auxiliares','6':'Computador y salidas','7':'Transmisión','8':'Transmisión','A':'Propulsión híbrida','B':'Propulsión híbrida','C':'Propulsión híbrida'};
@@ -1028,6 +1031,7 @@ function renderSup(){
   addRow('LPH','Consumo estimado de combustible','calc',true);
   addRow('KML','Rendimiento estimado','calc',true);
   addRow('ACC','Aceleración (calculada desde velocidad)','calc',true);
+  if(S.sup.has(0x2F)){addRow('FLP','Nivel del estanque (%)','2F',true);addRow('FLV','Combustible en el estanque (litros estimados)','calc',true);addRow('RNG','Autonomía estimada','calc',true)}
   const uns=Object.keys(PIDS).map(Number).filter(p=>!S.sup.has(p));
   $('#unsTitle').textContent=uns.length+' parámetros OBD2 conocidos que tu auto no reporta';
   $('#unsList').innerHTML='';for(const p of uns){const c=document.createElement('span');c.className='chip';c.textContent=hx(p)+' · '+PIDS[p].n;$('#unsList').appendChild(c)}
@@ -1044,7 +1048,8 @@ $('#bReadAll').onclick=async()=>{
 function buildCards(){
   const g=$('#cards');g.innerHTML='';
   for(const id of S.watch){
-    const known=VIRT[id]||(S.sup.has(id)&&PIDS[id]&&!PIDS[id].t);if(!known)continue;
+    const fuelId=id==='FLP'||id==='FLV'||id==='RNG';
+    const known=fuelId?S.sup.has(0x2F):(VIRT[id]||(S.sup.has(id)&&PIDS[id]&&!PIDS[id].t));if(!known)continue;
     const p=info(id);const a=document.createElement('article');a.className='card'+(p.v?' virtual':'');a.dataset.id=id;
     a.innerHTML='<h3></h3><div class="val"><span>—</span><small></small></div><canvas></canvas><footer><span class="mn">mín —</span><span class="mx">máx —</span></footer>';
     a.querySelector('h3').textContent=p.n;a.querySelector('small').textContent=p.u;g.appendChild(a);
@@ -1106,6 +1111,15 @@ function computeVirtual(){
     S.lphE=S.lphE==null?lph:S.lphE*0.7+lph*0.3;
     setVal('LPH',lph);
     const sp=V[0x0D];if(sp!=null)setVal('KML',sp>3?(S.lphE>0.05?Math.min(sp/S.lphE,40):40):0);
+  }
+  const lv=V[0x2F];
+  if(lv!=null){
+    if(!S.lvlBuf.length||S.lvlBuf[S.lvlBuf.length-1]!==lv)S.lvlBuf.push(lv);
+    if(S.lvlBuf.length>9)S.lvlBuf.shift();
+    const so=[...S.lvlBuf].sort((a,b)=>a-b);S.lvl=so[Math.floor(so.length/2)];
+    const L=S.lvl*S.cap/100;
+    setVal('FLP',S.lvl);setVal('FLV',L);
+    const avg=T.d>3&&T.fuel>0.3?T.d/T.fuel:null;if(avg!=null)setVal('RNG',L*avg);
   }
 }
 function cardState(id,v){
@@ -1546,6 +1560,7 @@ async function readDtcAll(){
 async function housekeeping(){
   const now=Date.now();if(now-hkT<(S.light?60000:30000))return;hkT=now;
   try{
+    if(S.sup.has(0x2F)){const bl=parse01(await elm.send('012F',3000),0x2F)[0];if(bl)setVal(0x2F,bl[0]/2.55)}
     const b=parse01(await elm.send('0101',3000),1)[0];if(!b)return;
     const mil=!!(b[0]&0x80),cnt=b[0]&0x7F;
     if(S.mon&&(S.mon.mil!==mil||S.mon.count!==cnt)){await readMonitors();REC.event('dtc_change',{mil,count:cnt});await readDtcAll();CQ.last.ff=null}
@@ -1886,10 +1901,11 @@ function bubbleTick(){
   const V=S.vals,f=(id,d=0)=>V[id]==null?'—':V[id].toFixed(d);
   const kml=V[0x0D]>3&&V.KML!=null?V.KML.toFixed(1)+' km/L':(V.LPH!=null?V.LPH.toFixed(1)+' L/h':'—');
   let state='';for(const id of ALERT_IDS){const v=V[id];if(v==null)continue;const st=cardState(id,v);if(st==='bad'){state='bad';break}if(st==='warn')state='warn'}
-  try{plug('Spp').overlayUpdate({l1:f(0x0D)+' km/h · '+f(0x0C)+' rpm',l2:'Temp '+f(5)+'° · '+f('BAT',1)+' V · '+kml,l3:'Viaje '+T.d.toFixed(1)+' km · '+(T.fuel>0.02&&T.d>0.1?(T.d/T.fuel).toFixed(1)+' km/L':'— km/L'),state}).catch(()=>{})}catch{}
+  try{plug('Spp').overlayUpdate({l1:f(0x0D)+' km/h · '+f(0x0C)+' rpm',l2:'Temp '+f(5)+'° · '+f('BAT',1)+' V · '+kml,l3:(V.FLV!=null?'Estanque '+V.FLV.toFixed(0)+' L'+(V.RNG!=null?' ~'+V.RNG.toFixed(0)+' km':'')+' · ':'')+'Prom '+(T.fuel>0.02&&T.d>0.1?(T.d/T.fuel).toFixed(1)+' km/L':'—'),state}).catch(()=>{})}catch{}
 }
 
 window.addEventListener('resize',()=>renderCards());
+if(S.watch&&!ls.get('obd_mig_fuel',false)){for(const id of ['FLP','FLV','RNG'])if(!S.watch.includes(id))S.watch.push(id);ls.set('obd_watch',S.watch);ls.set('obd_mig_fuel',true)}
 const BUILD='__BUILD__';
 $('#ver').textContent=isNative()?'App Android '+(BUILD.startsWith('__')?'(sin número)':BUILD):'Versión web';
 S.watch=S.watch||DEF_WATCH.slice();
