@@ -1,21 +1,33 @@
 package cl.hector.tablero.obd;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 
+import android.content.Intent;
+import android.os.Build;
+
+import androidx.core.content.ContextCompat;
+
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.InputStream;
 import java.util.UUID;
 
 /** Bluetooth clásico (SPP / RFCOMM) para adaptadores ELM327 vinculados en Android. */
-@CapacitorPlugin(name = "Spp")
+@CapacitorPlugin(
+    name = "Spp",
+    permissions = {@Permission(strings = {Manifest.permission.POST_NOTIFICATIONS}, alias = "notifications")}
+)
 public class SppPlugin extends Plugin {
     private static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private volatile BluetoothSocket socket;
@@ -135,5 +147,39 @@ public class SppPlugin extends Plugin {
     public void disconnect(PluginCall call) {
         closeAll();
         call.resolve();
+    }
+
+    /** Servicio en primer plano: mantiene viva la app (y la grabación) con la pantalla apagada. */
+    @PluginMethod
+    public void startService(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED) {
+            requestPermissionForAlias("notifications", call, "notifCallback");
+            return;
+        }
+        doStart(call);
+    }
+
+    @PermissionCallback
+    private void notifCallback(PluginCall call) {
+        doStart(call);
+    }
+
+    private void doStart(PluginCall call) {
+        try {
+            ContextCompat.startForegroundService(getContext(), new Intent(getContext(), ObdService.class));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("servicio: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopService(PluginCall call) {
+        try {
+            getContext().stopService(new Intent(getContext(), ObdService.class));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("servicio: " + e.getMessage());
+        }
     }
 }

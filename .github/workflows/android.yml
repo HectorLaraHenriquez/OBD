@@ -24,6 +24,22 @@ jobs:
       - run: npx cap sync android
       - name: Plugin SPP (Bluetooth clásico)
         run: cp android-src/*.java android/app/src/main/java/cl/hector/tablero/obd/
+      - name: Permisos y servicio en primer plano
+        run: |
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p,encoding='utf-8').read()
+          perms='''    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              '''
+          assert s.count('<application')==1 and '</application>' in s
+          s=s.replace('<application',perms+'<application',1)
+          s=s.replace('</application>','    <service android:name=".ObdService" android:exported="false" android:foregroundServiceType="connectedDevice"/>\n    </application>')
+          open(p,'w',encoding='utf-8').write(s)
+          print(s)
+          PY
       - name: Versión y firma debug estable
         run: |
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle

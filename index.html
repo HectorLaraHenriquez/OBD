@@ -565,7 +565,7 @@ async function saveText(name,text,mime,title){
 
 /* ---------- Simulador ---------- */
 class Sim{
-  constructor(){this.t0=Date.now();this.name='Demo';this.h=0;this.hdr='7DF';this.sup=new Set([0x01,0x03,0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0E,0x0F,0x11,0x13,0x14,0x15,0x1C,0x1F,0x20,0x21,0x2E,0x30,0x31,0x33,0x3C,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x49,0x4A,0x4C])}
+  constructor(){this.t0=Date.now();this.name='Demo';this.h=0;this.hdr='7DF';this.sup=new Set([0x57,0x6A,0x01,0x03,0x04,0x05,0x06,0x07,0x0B,0x0C,0x0D,0x0E,0x0F,0x11,0x13,0x14,0x15,0x1C,0x1F,0x20,0x21,0x2E,0x30,0x31,0x33,0x3C,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x49,0x4A,0x4C])}
   async open(onData){this.onData=onData}
   async write(s){const r=this.resp(s.trim().toUpperCase());setTimeout(()=>this.onData&&this.onData(r+'\r\r>'),40+Math.random()*40)}
   close(){this.onData=null}
@@ -669,6 +669,10 @@ const elm={t:null,buf:'',waiter:null,lock:Promise.resolve(),
     const n=this.lock.then(run,run);this.lock=n.catch(()=>{});return n;
   }
 };
+function CLOG(c,r,ms){S.clog.push({t:Date.now(),c,r:String(r).replace(/\s+/g,' ').slice(0,100),ms});if(S.clog.length>400)S.clog.shift()}
+const _send=elm.send.bind(elm);
+elm.send=async function(c,ms){const t0=Date.now();try{const r=await _send(c,ms);CLOG(c,r,Date.now()-t0);return r}catch(e){CLOG(c,'ERROR '+e.message,Date.now()-t0);throw e}};
+function bump(id){S.fail[id]=(S.fail[id]||0)+1}
 function lines(r){return r.split('\n').map(l=>l.replace(/\s/g,'').toUpperCase()).filter(Boolean)}
 function bytesOf(h){const b=[];for(let j=0;j+1<h.length;j+=2)b.push(parseInt(h.substr(j,2),16));return b.some(isNaN)?[]:b}
 function parse01(r,pid){const k='41'+hx(pid);const out=[];for(let l of lines(r)){l=l.replace(/^[0-9A-F]:/,'');if(l.startsWith(k)){const b=bytesOf(l.slice(4));if(b.length)out.push(b)}}return out}
@@ -688,15 +692,204 @@ function parseVIN(r){const ls_=lines(r);let s=ls_.filter(l=>/^[0-9A-F]:/.test(l)
 
 /* ---------- Estado ---------- */
 const DEF_WATCH=[0x0C,0x0D,0x05,0x04,0x11,0x0B,0x10,0x0F,0x06,0x07,0x0E,'BAT','LPH','KML'];
-const S={mode:'demo',sup:new Set(),isCAN:true,proto:'—',vin:null,watch:ls.get('obd_watch',null),vals:{},hist:{},stats:{},polling:false,rec:false,rows:[],dtc:null,mon:null,reads:0,t0:Date.now(),rep:{},snap:{},alertSt:{},cancelScan:false,busy:false};
+const S={mode:'demo',sup:new Set(),isCAN:true,proto:'—',vin:null,watch:ls.get('obd_watch',null),vals:{},hist:{},stats:{},polling:false,rec:false,rows:[],dtc:null,mon:null,reads:0,t0:Date.now(),rep:{},snap:{},alertSt:{},clog:[],fail:{},unk:{},wantConn:false,cancelScan:false,busy:false};
 
 const DTC_DB={P0100:'Circuito del sensor MAF',P0101:'Sensor MAF fuera de rango',P0105:'Circuito del sensor MAP',P0106:'Sensor MAP fuera de rango',P0107:'Sensor MAP señal baja',P0108:'Sensor MAP señal alta',P0110:'Circuito sensor temperatura de admisión',P0112:'Temperatura de admisión señal baja',P0113:'Temperatura de admisión señal alta',P0115:'Circuito sensor temperatura refrigerante',P0116:'Sensor temperatura refrigerante fuera de rango',P0117:'Temperatura refrigerante señal baja',P0118:'Temperatura refrigerante señal alta',P0120:'Circuito sensor posición mariposa',P0121:'Sensor posición mariposa fuera de rango',P0128:'Termostato: el motor no alcanza temperatura',P0130:'Circuito sensor O2 B1S1',P0131:'Sensor O2 B1S1 voltaje bajo',P0132:'Sensor O2 B1S1 voltaje alto',P0133:'Sensor O2 B1S1 respuesta lenta',P0134:'Sensor O2 B1S1 sin actividad',P0135:'Calefactor sensor O2 B1S1',P0136:'Circuito sensor O2 B1S2',P0137:'Sensor O2 B1S2 voltaje bajo',P0138:'Sensor O2 B1S2 voltaje alto',P0141:'Calefactor sensor O2 B1S2',P0171:'Mezcla demasiado pobre B1',P0172:'Mezcla demasiado rica B1',P0300:'Fallo de encendido aleatorio',P0301:'Fallo de encendido cilindro 1',P0302:'Fallo de encendido cilindro 2',P0303:'Fallo de encendido cilindro 3',P0304:'Fallo de encendido cilindro 4',P0325:'Circuito sensor de detonación',P0335:'Sensor posición cigüeñal',P0340:'Sensor posición árbol de levas',P0420:'Eficiencia del catalizador bajo el umbral',P0442:'Fuga pequeña en sistema EVAP',P0443:'Circuito válvula de purga EVAP',P0455:'Fuga grande en sistema EVAP',P0456:'Fuga muy pequeña en sistema EVAP',P0500:'Sensor de velocidad del vehículo',P0505:'Sistema de control de ralentí',P0506:'Ralentí más bajo de lo esperado',P0507:'Ralentí más alto de lo esperado',P0562:'Voltaje del sistema bajo',P0563:'Voltaje del sistema alto',P0601:'Error de memoria del computador',P0650:'Circuito de la luz check engine'};
 const SYS={'1':'Medición de aire y combustible','2':'Medición de aire y combustible (inyectores)','3':'Encendido o fallos de encendido','4':'Control de emisiones auxiliares','5':'Velocidad, ralentí y entradas auxiliares','6':'Computador y salidas','7':'Transmisión','8':'Transmisión','A':'Propulsión híbrida','B':'Propulsión híbrida','C':'Propulsión híbrida'};
+Object.assign(DTC_DB,Object.fromEntries(`P0102|Sensor MAF señal baja
+P0103|Sensor MAF señal alta
+P0104|Sensor MAF intermitente
+P0111|Sensor temperatura de admisión fuera de rango
+P0114|Sensor temperatura de admisión intermitente
+P0119|Sensor temperatura refrigerante intermitente
+P0122|Sensor posición mariposa A señal baja
+P0123|Sensor posición mariposa A señal alta
+P0124|Sensor posición mariposa A intermitente
+P0125|Temperatura insuficiente del refrigerante para control en lazo cerrado
+P0127|Temperatura de admisión demasiado alta
+P0139|Sensor O2 B1S2 respuesta lenta
+P0140|Sensor O2 B1S2 sin actividad
+P0150|Circuito sensor O2 B2S1
+P0151|Sensor O2 B2S1 voltaje bajo
+P0152|Sensor O2 B2S1 voltaje alto
+P0153|Sensor O2 B2S1 respuesta lenta
+P0154|Sensor O2 B2S1 sin actividad
+P0155|Calefactor sensor O2 B2S1
+P0156|Circuito sensor O2 B2S2
+P0157|Sensor O2 B2S2 voltaje bajo
+P0158|Sensor O2 B2S2 voltaje alto
+P0159|Sensor O2 B2S2 respuesta lenta
+P0160|Sensor O2 B2S2 sin actividad
+P0161|Calefactor sensor O2 B2S2
+P0170|Falla en el ajuste de combustible B1
+P0173|Falla en el ajuste de combustible B2
+P0174|Mezcla demasiado pobre B2
+P0175|Mezcla demasiado rica B2
+P0190|Circuito sensor presión del riel de combustible
+P0191|Sensor presión del riel fuera de rango
+P0192|Sensor presión del riel señal baja
+P0193|Sensor presión del riel señal alta
+P0200|Circuito de inyector
+P0201|Circuito inyector cilindro 1
+P0202|Circuito inyector cilindro 2
+P0203|Circuito inyector cilindro 3
+P0204|Circuito inyector cilindro 4
+P0220|Circuito sensor posición mariposa B
+P0221|Sensor posición mariposa B fuera de rango
+P0222|Sensor posición mariposa B señal baja
+P0223|Sensor posición mariposa B señal alta
+P0230|Circuito primario de la bomba de combustible
+P0231|Circuito secundario bomba de combustible bajo
+P0232|Circuito secundario bomba de combustible alto
+P0261|Circuito inyector cilindro 1 bajo
+P0262|Circuito inyector cilindro 1 alto
+P0264|Circuito inyector cilindro 2 bajo
+P0265|Circuito inyector cilindro 2 alto
+P0267|Circuito inyector cilindro 3 bajo
+P0268|Circuito inyector cilindro 3 alto
+P0270|Circuito inyector cilindro 4 bajo
+P0271|Circuito inyector cilindro 4 alto
+P0305|Fallo de encendido cilindro 5
+P0306|Fallo de encendido cilindro 6
+P0320|Circuito sensor de RPM del encendido
+P0321|Sensor de RPM del encendido fuera de rango
+P0322|Sensor de RPM del encendido sin señal
+P0324|Falla en el sistema de control de detonación
+P0326|Sensor de detonación fuera de rango
+P0327|Sensor de detonación señal baja
+P0328|Sensor de detonación señal alta
+P0336|Sensor posición cigüeñal fuera de rango
+P0337|Sensor posición cigüeñal señal baja
+P0338|Sensor posición cigüeñal señal alta
+P0339|Sensor posición cigüeñal intermitente
+P0341|Sensor posición árbol de levas fuera de rango
+P0342|Sensor posición árbol de levas señal baja
+P0343|Sensor posición árbol de levas señal alta
+P0344|Sensor posición árbol de levas intermitente
+P0351|Circuito bobina de encendido A
+P0352|Circuito bobina de encendido B
+P0353|Circuito bobina de encendido C
+P0354|Circuito bobina de encendido D
+P0400|Falla en el flujo de EGR
+P0401|Flujo de EGR insuficiente
+P0402|Flujo de EGR excesivo
+P0403|Circuito de la válvula EGR
+P0404|Rango/rendimiento del circuito EGR
+P0405|Sensor EGR A señal baja
+P0406|Sensor EGR A señal alta
+P0410|Falla en el sistema de aire secundario
+P0411|Flujo incorrecto en el sistema de aire secundario
+P0412|Circuito válvula de conmutación de aire secundario A
+P0418|Circuito del relé de la bomba de aire secundario
+P0421|Eficiencia del catalizador (calentamiento) bajo el umbral B1
+P0422|Eficiencia del catalizador principal bajo el umbral B1
+P0430|Eficiencia del catalizador bajo el umbral B2
+P0440|Falla en el sistema EVAP
+P0441|Flujo de purga EVAP incorrecto
+P0444|Circuito de la válvula de purga EVAP abierto
+P0445|Circuito de la válvula de purga EVAP en cortocircuito
+P0446|Circuito de control de ventilación EVAP
+P0447|Circuito de ventilación EVAP abierto
+P0448|Circuito de ventilación EVAP en cortocircuito
+P0449|Circuito de la válvula de ventilación EVAP
+P0450|Circuito del sensor de presión EVAP
+P0451|Sensor de presión EVAP fuera de rango
+P0452|Sensor de presión EVAP señal baja
+P0453|Sensor de presión EVAP señal alta
+P0457|Fuga en el sistema EVAP (tapa de combustible suelta o ausente)
+P0460|Circuito sensor nivel de combustible
+P0461|Sensor nivel de combustible fuera de rango
+P0462|Sensor nivel de combustible señal baja
+P0463|Sensor nivel de combustible señal alta
+P0480|Circuito del relé del ventilador de enfriamiento 1
+P0481|Circuito del relé del ventilador de enfriamiento 2
+P0501|Sensor de velocidad del vehículo fuera de rango
+P0502|Sensor de velocidad del vehículo señal baja
+P0503|Sensor de velocidad del vehículo intermitente
+P0508|Control de aire de ralentí señal baja
+P0509|Control de aire de ralentí señal alta
+P0510|Interruptor de posición de mariposa cerrada
+P0520|Circuito del sensor de presión de aceite
+P0521|Sensor de presión de aceite fuera de rango
+P0522|Sensor de presión de aceite señal baja
+P0523|Sensor de presión de aceite señal alta
+P0524|Presión de aceite del motor demasiado baja
+P0530|Circuito del sensor de presión del refrigerante A/C
+P0532|Sensor de presión A/C señal baja
+P0533|Sensor de presión A/C señal alta
+P0560|Falla en el voltaje del sistema
+P0561|Voltaje del sistema inestable
+P0571|Circuito del interruptor del freno
+P0572|Interruptor del freno señal baja
+P0573|Interruptor del freno señal alta
+P0602|Error de programación del módulo de control
+P0603|Error de memoria KAM del módulo
+P0604|Error de memoria RAM del módulo
+P0605|Error de memoria ROM del módulo
+P0606|Falla del procesador del módulo de control
+P0607|Rendimiento del módulo de control
+P0620|Circuito de control del generador
+P0621|Circuito de la lámpara L del generador
+P0622|Circuito de campo F del generador
+P0627|Circuito de control de la bomba de combustible abierto
+P0628|Circuito de control de la bomba de combustible bajo
+P0629|Circuito de control de la bomba de combustible alto
+P0630|VIN no programado en el módulo
+P0633|Llave del inmovilizador no programada
+P0641|Voltaje de referencia del sensor A
+P0651|Voltaje de referencia del sensor B
+P0657|Circuito de alimentación de actuadores
+P0685|Circuito del relé principal del módulo de control
+P0686|Relé principal del módulo señal baja
+P0687|Relé principal del módulo señal alta
+P0700|Falla en el sistema de control de transmisión
+P2096|Mezcla pobre aguas abajo del catalizador B1
+P2097|Mezcla rica aguas abajo del catalizador B1
+P2101|Circuito del motor del actuador de mariposa
+P2102|Motor del actuador de mariposa señal baja
+P2103|Motor del actuador de mariposa señal alta
+P2104|Control de mariposa forzado a ralentí
+P2105|Control de mariposa forzado a apagado del motor
+P2106|Control de mariposa en potencia limitada
+P2107|Procesador del módulo de control de mariposa
+P2108|Rendimiento del módulo de control de mariposa
+P2119|Mariposa fuera de rango
+P2122|Pedal acelerador D señal baja
+P2123|Pedal acelerador D señal alta
+P2127|Pedal acelerador E señal baja
+P2128|Pedal acelerador E señal alta
+P2135|Correlación sensores de mariposa A/B
+P2138|Correlación sensores de pedal D/E
+P2177|Mezcla pobre fuera de ralentí B1
+P2178|Mezcla rica fuera de ralentí B1
+P2187|Mezcla pobre en ralentí B1
+P2188|Mezcla rica en ralentí B1
+P2195|Sensor O2 B1S1 atascado en pobre
+P2196|Sensor O2 B1S1 atascado en rico
+P2270|Sensor O2 B1S2 atascado en pobre
+P2271|Sensor O2 B1S2 atascado en rico
+P2A00|Sensor O2 B1S1 rendimiento fuera de rango
+U0001|Comunicación del bus CAN de alta velocidad
+U0073|Bus de comunicaciones A apagado
+U0100|Pérdida de comunicación con el módulo del motor (ECM)
+U0101|Pérdida de comunicación con el módulo de transmisión (TCM)
+U0103|Pérdida de comunicación con el selector de marchas
+U0121|Pérdida de comunicación con el módulo ABS
+U0140|Pérdida de comunicación con el módulo de carrocería (BCM)
+U0155|Pérdida de comunicación con el tablero de instrumentos
+U0164|Pérdida de comunicación con el módulo de climatización
+U0168|Pérdida de comunicación con el módulo de seguridad del vehículo
+U0401|Datos inválidos recibidos del módulo del motor
+U0415|Datos inválidos recibidos del módulo ABS
+C0035|Circuito sensor de velocidad rueda delantera izquierda
+C0040|Circuito sensor de velocidad rueda delantera derecha
+C0045|Circuito sensor de velocidad rueda trasera izquierda
+C0050|Circuito sensor de velocidad rueda trasera derecha`.split('\n').map(l=>l.split('|'))));
 function dtcInfo(c){
   let d=DTC_DB[c];
   if(!d)d=(c[1]==='0'?'Código genérico':'Código del fabricante')+(c[0]==='P'?' · '+(SYS[c[2]]||'Motor'):'');
   let sev='media';
-  if(/^P030/.test(c)||c==='P0335'||c==='P0217'||c==='P0118')sev='alta';
+  if(/^P030/.test(c)||c==='P0335'||c==='P0217'||c==='P0118'||/^P052[234]$/.test(c)||c==='P0606')sev='alta';
   else if(/^P04[4-5]/.test(c)||c==='P0650')sev='baja';
   return {d,sev};
 }
@@ -754,19 +947,19 @@ const esc=x=>String(x).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[
 function dlog(m,cls){(S.diag=S.diag||[]).push(new Date().toISOString().slice(11,19)+' '+m);logLine(cls||'',m)}
 function diagBanner(head,hint){banner('<b>'+esc(head)+'</b> '+esc(hint)+'<pre class="log" style="height:auto;max-height:220px;margin:10px 0 8px;font-size:11px">'+esc((S.diag||[]).slice(-30).join('\n'))+'</pre><button class="btn" id="bCopyDiag" type="button">Copiar diagnóstico</button>',true)}
 $('#banner').addEventListener('click',e=>{if(e.target.id==='bCopyDiag'){const b=e.target;navigator.clipboard.writeText((S.diag||[]).join('\n')).then(()=>b.textContent='Copiado',()=>b.textContent='No se pudo copiar')}});
-function toIdle(){stopPoll();REC.stop();if(elm.t){try{elm.t.close()}catch{}}elm.t=null;S.mode='x';setPill('','Desconectado');$('#bConnect').hidden=false;$('#bDisc').hidden=true;$('#bDemo').hidden=false}
+function toIdle(){stopPoll();REC.stop();if(!S.wantConn)svcCtl(false);if(elm.t){try{elm.t.close()}catch{}}elm.t=null;S.mode='x';setPill('','Desconectado');$('#bConnect').hidden=false;$('#bDisc').hidden=true;$('#bDemo').hidden=false}
 function onDrop(){
   if(S.mode!=='real')return;
   S.dropped=true;elm.abort();
   if(!elm.t)return;
   dlog('Conexión perdida con la app ya conectada','er');
-  toIdle();diagBanner('Se perdió la conexión.','Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');
+  toIdle();diagBanner('Se perdió la conexión.',S.wantConn&&isNative()?'Se reintentará conectar automáticamente cada 10 s mientras la app siga abierta o en segundo plano.':'Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');scheduleReconnect();
 }
 
 $('#bConnect').onclick=async()=>{
   if(!isNative()&&!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
   const tr=isNative()?new BleNative():new Ble();tr.all=$('#allDev').checked;ls.set('obd_all',tr.all);
-  try{await connectWith(tr,'real')}
+  try{await connectWith(tr,'real');S.wantConn=true;rcN=0;svcCtl(true)}
   catch(e){
     dlog('ERROR '+e.name+': '+e.message,'er');
     try{tr.close()}catch{}
@@ -779,7 +972,7 @@ $('#bConnect').onclick=async()=>{
     diagBanner('No se pudo conectar ('+e.name+').',hint);
   }
 };
-$('#bDisc').onclick=()=>{toIdle();banner('Desconectado. Toca <i>Conectar adaptador</i> para volver a conectar.')};
+$('#bDisc').onclick=()=>{S.wantConn=false;clearTimeout(rcTimer);toIdle();svcCtl(false);banner('Desconectado. Toca <i>Conectar adaptador</i> para volver a conectar.')};
 $('#bDemo').onclick=startDemo;
 function startDemo(){banner('<b>Modo demostración.</b> Los valores son simulados. Enchufa el iCar2, da contacto y toca <i>Conectar adaptador</i>.');connectWith(new Sim(),'demo')}
 
@@ -893,15 +1086,16 @@ async function pollLoop(){
       if(!S.polling)break;
       try{
         if(id==='BAT'){const r=await elm.send('ATRV',2000);setVal('BAT',parseFloat(r))}
-        else{const b=parse01(await elm.send('01'+hx(id),2500),id)[0];if(b){const v=decode(id,b);if(typeof v==='number')setVal(id,v)}}
+        else{const b=parse01(await elm.send('01'+hx(id),2500),id)[0];if(b){const v=decode(id,b);if(typeof v==='number')setVal(id,v)}else bump(id)}
         cnt++;
-      }catch(e){}
+      }catch(e){bump(id)}
     }
     await slowRead();
     computeVirtual();updateTrip();REC.tick();
     if(S.rec)recordRow();
     renderCards();
     await housekeeping();
+    await checkups();
     const dt=(Date.now()-t)/1000;if(dt>2){$('#rate').textContent=(cnt/dt).toFixed(1)+' lecturas/s';cnt=0;t=Date.now()}
     await sleep(40);
   }
@@ -1120,16 +1314,16 @@ function renderMods(){
 const say=m=>{$('#scanSt').textContent=m};
 async function exclusive(fn){const was=S.polling;stopPoll();S.busy=true;await sleep(150);try{return await fn()}finally{S.busy=false;if(was)startPoll()}}
 function run(fn){return exclusive(async()=>{S.cancelScan=false;$('#bScanStop').hidden=false;try{await fn()}catch(e){say('Error: '+e.message)}finally{$('#bScanStop').hidden=true}})}
-const doAdp=async()=>{say('Leyendo adaptador…');S.rep.adp=await readAdapter();kv($('#oAdp'),S.rep.adp);say('')};
-const doIdent=async()=>{say('Leyendo identificación…');S.rep.id=await readIdent();kv($('#oId'),S.rep.id,'El auto no respondió al modo 09.');say('')};
-const doFF=async()=>{say('Leyendo datos congelados…');S.rep.ff=await readFF();kv($('#oFF'),S.rep.ff,'Sin datos congelados: no hay falla registrada.');say('')};
-const doM06=async()=>{say('Leyendo pruebas de monitoreo…');S.rep.m06=await readM06();kv($('#oM06'),S.rep.m06,'El auto no responde al modo 06.');say('')};
+const doAdp=async()=>{say('Leyendo adaptador…');S.rep.adp=await readAdapter();REC.event('adaptador',S.rep.adp);kv($('#oAdp'),S.rep.adp);say('')};
+const doIdent=async()=>{say('Leyendo identificación…');S.rep.id=await readIdent();REC.event('ident',S.rep.id);kv($('#oId'),S.rep.id,'El auto no respondió al modo 09.');say('')};
+const doFF=async()=>{say('Leyendo datos congelados…');S.rep.ff=await readFF();REC.event('freeze',S.rep.ff);kv($('#oFF'),S.rep.ff,'Sin datos congelados: no hay falla registrada.');say('')};
+const doM06=async()=>{say('Leyendo pruebas de monitoreo…');S.rep.m06=await readM06();REC.event('m06',S.rep.m06);kv($('#oM06'),S.rep.m06,'El auto no responde al modo 06.');say('')};
 async function doMods(full){
   if(full&&!confirm('El escaneo ampliado envía tramas de prueba a unas 220 direcciones CAN. Hazlo con el auto detenido y en contacto. ¿Continuar?'))return;
   const found=await probeModules(full,(n,t,f)=>say('Sondeando '+n+'/'+t+' · encontrados '+f));
   const out=[];
   for(const m of found){if(S.cancelScan)break;say('Leyendo módulo '+hexN(m.req)+'…');out.push(await readModule(m))}
-  S.rep.mods=out;renderMods();say(found.length+' módulos respondieron'+(S.cancelScan?' (cancelado)':''));
+  S.rep.mods=out;REC.event('modulos',out);renderMods();say(found.length+' módulos respondieron'+(S.cancelScan?' (cancelado)':''));
 }
 $('#bAdp').onclick=()=>run(doAdp);
 $('#bId').onclick=()=>run(doIdent);
@@ -1191,20 +1385,28 @@ const DB={
 /* ---------- Grabador: cada conexión = una sesión con 1 fila por segundo ---------- */
 const ALERT_IDS=[0x05,0x06,0x07,'BAT',0x0C,0x3C];
 const REC={
-  s:null,buf:[],evbuf:[],lastRow:0,lastFlush:0,offSince:null,
+  s:null,buf:[],evbuf:[],lastRow:0,lastFlush:0,offSince:null,wasOn:false,sawOff:false,batBuf:[],
   async start(){
     if(S.mode==='demo'&&!ls.get('obd_rec_demo',false)){this.s=null;this.ui();return}
     this.s={id:Date.now(),start:Date.now(),last:Date.now(),vin:S.vin,mode:S.mode,proto:S.proto,n:0,alerts:0,bv:{sum:0,n:0,min:99},bo:{sum:0,n:0,min:99}};
-    this.buf=[];this.evbuf=[];this.lastRow=0;this.lastFlush=Date.now();this.offSince=null;hkT=Date.now();
+    this.buf=[];this.evbuf=[];this.lastRow=0;this.lastFlush=Date.now();this.offSince=null;this.wasOn=false;this.sawOff=false;this.batBuf=[];
+    hkT=Date.now();CQ.last={};S.fail={};S.unk={};
     if(S.mon)this.event('estado',{mil:S.mon.mil,count:S.mon.count,monitores:S.mon.list.map(m=>m.n+'='+(m.ok?'listo':'incompleto'))});
     try{await DB.putSession(this.s)}catch(e){this.s=null;dlog('Almacenamiento no disponible: '+e.message,'er')}
     this.ui();
   },
-  event(type,data){const s=this.s;if(!s)return;this.evbuf.push({sid:s.id,t:Date.now()-s.start,type,data});if(type==='alert')s.alerts++},
+  event(type,data){const s=this.s;if(!s)return;this.evbuf.push({sid:s.id,t:Date.now()-s.start,type,data:JSON.parse(JSON.stringify(data===undefined?null:data))});if(type==='alert')s.alerts++},
   tick(){
     const s=this.s;if(!s)return;
     const now=Date.now(),rpm=S.vals[0x0C],on=rpm!=null&&rpm>400;
     if(on)this.offSince=null;else if(!this.offSince)this.offSince=now;
+    if(!on&&this.offSince&&now-this.offSince>3000)this.sawOff=true;
+    if(S.vals.BAT!=null){this.batBuf.push([now,S.vals.BAT]);if(this.batBuf.length>30)this.batBuf.shift()}
+    if(on&&!this.wasOn&&this.sawOff){
+      const w=this.batBuf.filter(x=>now-x[0]<12000).map(x=>x[1]);
+      if(w.length>=2){const c={vmin:Math.min(...w),vpre:Math.max(...w),vpost:S.vals.BAT};s.crank=c;this.event('arranque',c)}
+    }
+    this.wasOn=on;
     if(!on&&now-this.offSince>600000){this.ui();return}
     for(const id of ALERT_IDS){const v=S.vals[id];if(v==null)continue;const st=cardState(id,v);if((S.alertSt[id]||'')!==st){S.alertSt[id]=st;if(st)this.event('alert',{id,st,v})}}
     if(now-this.lastRow<1000)return;
@@ -1218,6 +1420,7 @@ const REC={
     const s=this.s;if(!s)return;
     this.lastFlush=Date.now();const rows=this.buf,ev=this.evbuf;this.buf=[];this.evbuf=[];
     s.last=Date.now();s.vin=S.vin;s.trip={d:T.d,t:T.t,idle:T.idle,fuel:T.fuel};s.stats=JSON.parse(JSON.stringify(S.stats));
+    s.log=S.clog.slice(-150);s.fail=S.fail;s.unk=S.unk;
     try{if(rows.length)await DB.addRows('samples',rows);if(ev.length)await DB.addRows('events',ev);await DB.putSession(s)}catch(e){dlog('Error guardando: '+e.message,'er')}
     this.ui();
   },
@@ -1228,38 +1431,73 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)REC.flush()
 window.addEventListener('pagehide',()=>{REC.flush()});
 
 /* lectura de parámetros lentos (uno o dos por ciclo) y vigilancia de fallas cada 30 s */
-let slowI=0,hkT=0;
+let slowI=0,hkT=0,rcTimer=null,rcN=0;
+const CQ={last:{}};
 S.full=ls.get('obd_full',true);
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch{}
 function slowList(){
   if(!S.full)return [];
   const fast=new Set(pollList());
-  return [...S.sup].filter(p=>!SKIP.has(p)&&PIDS[p]&&!fast.has(p)).sort((a,b)=>a-b);
+  return [...S.sup].filter(p=>!SKIP.has(p)&&!fast.has(p)).sort((a,b)=>a-b);
 }
 async function slowRead(){
   const sl=slowList();
   for(let k=0;k<2&&sl.length&&S.polling;k++){
     const id=sl[slowI++%sl.length];
-    try{const b=parse01(await elm.send('01'+hx(id),2500),id)[0];if(b){const p=PIDS[id];const v=p.t?b[0]:decode(id,b);if(typeof v==='number')setVal(id,v)}}catch(e){}
+    try{
+      const b=parse01(await elm.send('01'+hx(id),2500),id)[0];
+      if(!b){bump(id);continue}
+      const p=PIDS[id];let key=id,v;
+      if(p)v=p.t?b[0]:decode(id,b);
+      else{key='x'+hx(id);v=b.slice(0,4).reduce((a,x)=>a*256+x,0);S.unk[key]=b.map(hx).join('')}
+      if(typeof v==='number')setVal(key,v);
+    }catch(e){bump(id)}
   }
+}
+async function readDtcAll(){
+  const res={};
+  for(const [k,m] of [['Guardados','03'],['Pendientes','07'],['Permanentes','0A']]){try{res[k]=parseDTC(await elm.send(m,5000),m)}catch{res[k]=null}}
+  S.dtc=res;REC.event('dtc',res);renderDTC();return res;
 }
 async function housekeeping(){
   const now=Date.now();if(now-hkT<30000)return;hkT=now;
   try{
     const b=parse01(await elm.send('0101',3000),1)[0];if(!b)return;
     const mil=!!(b[0]&0x80),cnt=b[0]&0x7F;
-    if(S.mon&&(S.mon.mil!==mil||S.mon.count!==cnt)){
-      await readMonitors();REC.event('dtc_change',{mil,count:cnt});
-      const res={};for(const [k,m] of [['Guardados','03'],['Pendientes','07']]){try{res[k]=parseDTC(await elm.send(m,5000),m)}catch{res[k]=null}}
-      S.dtc=Object.assign(S.dtc||{},res);REC.event('dtc',res);renderDTC();
-    }
+    if(S.mon&&(S.mon.mil!==mil||S.mon.count!==cnt)){await readMonitors();REC.event('dtc_change',{mil,count:cnt});await readDtcAll();CQ.last.ff=null}
   }catch{}
+}
+/* chequeos programados dentro del ciclo de lectura (uno por vuelta, sin chocar con las lecturas en vivo) */
+async function checkups(){
+  const s=REC.s;if(!s||!S.polling)return;
+  const now=Date.now(),age=now-s.start;
+  const due=(k,every,first)=>CQ.last[k]==null?age>=first:now-CQ.last[k]>=every;
+  const mark=k=>{CQ.last[k]=Date.now()};
+  if(due('adp',Infinity,3000)){mark('adp');REC.event('adaptador',await readAdapter());return}
+  if(due('ident',Infinity,6000)){mark('ident');REC.event('ident',await readIdent());return}
+  if(due('dtc',300000,9000)){mark('dtc');const r=await readDtcAll();if(Object.values(r).some(a=>a&&a.length))CQ.last.ff=null;return}
+  if(due('ff',900000,15000)){mark('ff');REC.event('freeze',await readFF());return}
+  if(due('m06',1200000,25000)){mark('m06');REC.event('m06',await readM06());return}
+  if(due('mon',300000,60000)){mark('mon');await readMonitors();if(S.mon)REC.event('estado',{mil:S.mon.mil,count:S.mon.count,monitores:S.mon.list.map(m=>m.n+'='+(m.ok?'listo':'incompleto'))});return}
+}
+/* segundo plano (servicio en primer plano en Android) y reconexión automática */
+function svcCtl(on){if(!isNative())return;try{plug('Spp')[on?'startService':'stopService']().catch(e=>dlog('Servicio segundo plano: '+(e.message||e),'er'))}catch{}}
+function scheduleReconnect(){
+  clearTimeout(rcTimer);
+  if(!S.wantConn||!isNative())return;
+  if(rcN>=60){S.wantConn=false;svcCtl(false);banner('<b>No se pudo reconectar automáticamente.</b> Toca <i>Conectar adaptador</i> cuando el auto esté en contacto.',true);return}
+  rcTimer=setTimeout(async()=>{
+    if(!S.wantConn||elm.t)return;rcN++;dlog('Reconexión automática, intento '+rcN);
+    try{await connectWith(new BleNative(),'real');rcN=0;dlog('Reconectado')}
+    catch(e){dlog('Reintento falló: '+e.message,'er');try{toIdle()}catch{}scheduleReconnect()}
+  },10000);
 }
 $('#fullTrack').checked=S.full;
 $('#fullTrack').onchange=e=>{S.full=e.target.checked;ls.set('obd_full',S.full)};
 
 /* ---------- Análisis ---------- */
 const COLORS=['#f2a93b','#46b483','#5aa9e6','#ef5b5b','#b58cf0','#e6d75a'];
-const nmOf=id=>(info(id)||{}).n||('PID '+id);
+const nmOf=id=>{const q=String(id);if(q[0]==='x')return 'PID desconocido 0x'+q.slice(1).toUpperCase()+' (valor crudo)';return (info(id)||{}).n||('PID '+id)};
 const unOf=id=>(info(id)||{}).u||'';
 const GROUPS=[
   ['Velocidad y RPM',[0x0D,0x0C]],['Temperaturas',[0x05,0x0F,0x5C,0x3C,0x3E,0x46]],
@@ -1273,7 +1511,7 @@ function rowStats(rows){
   const o={};for(const k in col){const a=col[k];let sm=0,mn=Infinity,mx=-Infinity;for(const v of a){sm+=v;if(v<mn)mn=v;if(v>mx)mx=v}o[k]={n:a.length,min:mn,max:mx,avg:sm/a.length,p5:pctl(a,.05),p95:pctl(a,.95)}}
   return o;
 }
-const lab=(id,v)=>{const p=PIDS[id];return v==null?'—':(p&&p.t)?p.t(Math.round(v)):fmt(id,v)+(unOf(id)?' '+unOf(id):'')};
+const lab=(id,v)=>{const p=PIDS[id];if(v!=null&&!info(id))return String(Math.round(v*1000)/1000);return v==null?'—':(p&&p.t)?p.t(Math.round(v)):fmt(id,v)+(unOf(id)?' '+unOf(id):'')};
 function fromStats(s){const o={};for(const k in (s.stats||{})){const x=s.stats[k];if(x.n)o[k]={n:x.n,min:x.min,max:x.max,avg:x.sum/x.n}}return o}
 function summary(s){
   const st=fromStats(s),tr=s.trip||{d:0,t:0,idle:0,fuel:0},g=id=>st[id]||null;
@@ -1290,6 +1528,7 @@ function flagsFor(s,rowSt){
   if(m.bat!=null){if(m.bat<13.2)o.push(['warn','Voltaje con motor andando bajo: '+m.bat.toFixed(2)+' V (alternador o batería)']);else if(m.bat>15)o.push(['bad','Voltaje con motor andando alto: '+m.bat.toFixed(2)+' V (regulador)'])}
   if(m.batOff!=null&&m.batOff<12.2)o.push(['warn','Voltaje con motor apagado bajo: '+m.batOff.toFixed(2)+' V (batería descargada)']);
   if(m.idle!=null&&m.idle>35&&m.dur>600)o.push(['info','Ralentí alto: '+m.idle.toFixed(0)+' % del tiempo con motor andando']);
+  if(s.crank&&s.crank.vmin<9.6)o.push(['warn','Caída de voltaje al arrancar a '+s.crank.vmin.toFixed(1)+' V (batería débil o bornes sulfatados)']);
   if(m.alerts)o.push(['info',m.alerts+' alertas registradas durante el viaje']);
   return o;
 }
@@ -1359,11 +1598,16 @@ async function loadSession(id){
 }
 function evText(e){
   const d=e.data||{};
-  if(e.type==='alert')return 'ALERTA '+nmOf(d.id)+': '+(d.st==='bad'?'crítico':'aviso')+' ('+lab(d.id,d.v)+')';
-  if(e.type==='dtc')return 'Fallas leídas: '+Object.entries(d).map(([k,a])=>k+'='+(a?(a.length?a.join(','):'ninguna'):'sin respuesta')).join('; ');
-  if(e.type==='dtc_change')return 'Cambio en fallas: luz '+(d.mil?'encendida':'apagada')+', '+d.count+' código(s)';
-  if(e.type==='estado')return 'Estado al conectar: luz '+(d.mil?'encendida':'apagada')+', '+d.count+' código(s) · '+(d.monitores||[]).join('; ');
-  return e.type+' '+JSON.stringify(d);
+  switch(e.type){
+    case 'alert':return 'ALERTA '+nmOf(d.id)+': '+(d.st==='bad'?'crítico':'aviso')+' ('+lab(d.id,d.v)+')';
+    case 'dtc':return 'Fallas leídas: '+Object.entries(d).map(([k,a])=>k+'='+(a?(a.length?a.map(c=>c+' ('+dtcInfo(c).d+')').join(', '):'ninguna'):'sin respuesta')).join('; ');
+    case 'dtc_change':return 'Cambio en fallas: luz '+(d.mil?'encendida':'apagada')+', '+d.count+' código(s)';
+    case 'estado':return 'Estado: luz '+(d.mil?'encendida':'apagada')+', '+d.count+' código(s) · '+(d.monitores||[]).join('; ');
+    case 'arranque':return 'Arranque: voltaje mínimo '+f1(d.vmin,2)+' V (antes '+f1(d.vpre,2)+' V, después '+f1(d.vpost,2)+' V)';
+    case 'adaptador':case 'ident':case 'freeze':case 'm06':return ({adaptador:'Adaptador',ident:'Identificación',freeze:'Datos congelados',m06:'Pruebas de monitoreo'})[e.type]+': '+(Array.isArray(d)&&d.length?d.map(r=>r.join(': ')).join('; ').slice(0,300):'sin datos');
+    case 'modulos':return 'Módulos: '+(Array.isArray(d)&&d.length?d.map(m=>m.title).join(', '):'ninguno');
+  }
+  return e.type+' '+JSON.stringify(d).slice(0,200);
 }
 async function openSession(id){
   const L=await loadSession(id);if(!L)return;CUR=L;
@@ -1402,7 +1646,17 @@ function aiText(L){
   T_.push('','ESTADÍSTICAS POR PARÁMETRO (mín / prom / máx · p5–p95):');
   for(const k of Object.keys(st).sort((a,b)=>(isNaN(a)?1e9:a)-(isNaN(b)?1e9:b))){const x=st[k];T_.push('- '+nmOf(k)+': '+lab(k,x.min)+' / '+lab(k,x.avg)+' / '+lab(k,x.max)+' · '+lab(k,x.p5)+'–'+lab(k,x.p95))}
   T_.push('','HALLAZGOS AUTOMÁTICOS:');if(!fl.length)T_.push('- ninguno');fl.forEach(([l,t])=>T_.push('- ['+l+'] '+t));
-  T_.push('','EVENTOS:');if(!ev.length)T_.push('- ninguno');ev.slice(0,60).forEach(e=>T_.push('- '+fmtT(e.t/1000)+' '+evText(e)));
+  const BIG=['adaptador','ident','freeze','m06','modulos'];
+  T_.push('','DATOS DEL AUTO Y PRUEBAS (último registro de cada tipo):');let any=false;
+  for(const t of BIG){const e=[...ev].reverse().find(x=>x.type===t);if(!e)continue;any=true;T_.push('['+t+' @ '+fmtT(e.t/1000)+']');
+    if(t==='modulos')(e.data||[]).forEach(m=>{T_.push('  '+m.title);m.rows.forEach(r=>T_.push('    - '+r.join(': ')))});
+    else (e.data||[]).forEach(r=>T_.push('  - '+r.join(': ')))}
+  if(!any)T_.push('- ninguno todavía (el chequeo automático corre al conectar; también puedes usar la pestaña Escáner)');
+  const ev2=ev.filter(x=>!BIG.includes(x.type));
+  T_.push('','EVENTOS:');if(!ev2.length)T_.push('- ninguno');ev2.slice(0,80).forEach(e=>T_.push('- '+fmtT(e.t/1000)+' '+evText(e)));
+  const ff=Object.entries(s.fail||{}).sort((a,b)=>b[1]-a[1]).slice(0,10);if(ff.length){T_.push('','LECTURAS FALLIDAS (sin respuesta del auto):');ff.forEach(([k,n])=>T_.push('- '+nmOf(k)+': '+n+' veces'))}
+  const un=Object.entries(s.unk||{});if(un.length){T_.push('','PARÁMETROS DESCONOCIDOS (último valor crudo en hex):');un.forEach(([k,h])=>T_.push('- '+nmOf(k)+': '+h))}
+  if((s.log||[]).length){T_.push('','ÚLTIMOS COMANDOS (para depurar la comunicación):');s.log.slice(-25).forEach(x=>T_.push('  '+x.c+' → '+x.r))}
   const keys=[0x0C,0x0D,0x05,0x07,0x06,0x04,'BAT','LPH'].filter(k=>st[k]);
   if(rows.length>1&&keys.length){
     const step=Math.max(1,Math.ceil(rows.length/60));
