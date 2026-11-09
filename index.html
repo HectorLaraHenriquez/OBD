@@ -147,7 +147,7 @@ textarea{min-height:200px;resize:vertical}
 
 <header class="top">
   <div class="wrap">
-    <h1 class="brand">Tablero OBD<small>MG GT 1.5 · iCar2 BLE</small></h1>
+    <h1 class="brand">Tablero OBD<small>MG GT 1.5 · <span id="ver">…</span></small></h1>
     <span class="pill" id="pill" data-s="demo">Demo</span>
     <div class="actions">
       <label class="sw"><input type="checkbox" id="allDev">Mostrar todos</label>
@@ -1716,6 +1716,8 @@ $('#bAiAll').onclick=async()=>{
 $('#bShareAll').onclick=()=>{const t=$('#tText').value;if(t)saveText('resumen_global_'+stamp()+'.txt',t,'text/plain','Resumen global OBD')};
 
 window.addEventListener('resize',()=>renderCards());
+const BUILD='__BUILD__';
+$('#ver').textContent=isNative()?'App Android '+(BUILD.startsWith('__')?'(sin número)':BUILD):'Versión web';
 S.watch=S.watch||DEF_WATCH.slice();
 $('#allDev').checked=ls.get('obd_all',false);if(isNative())$('#allDev').parentElement.lastChild.textContent='Elegir dispositivo';
 $('#cards').innerHTML='<p class="muted">Conecta el adaptador para ver datos en vivo.</p>';

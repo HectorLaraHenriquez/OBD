@@ -19,7 +19,9 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm install --no-audit --no-fund
-      - run: mkdir -p www && cp index.html www/
+      - run: |
+          mkdir -p www && cp index.html www/
+          sed -i "s/__BUILD__/v${{ github.run_number }} · ${GITHUB_SHA::7}/" www/index.html
       - run: npx cap add android
       - run: npx cap sync android
       - name: Plugin SPP (Bluetooth clásico)
