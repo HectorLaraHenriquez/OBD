@@ -476,7 +476,7 @@ class BleNative{
       this.classic=true;const P=this.P=plug('Spp');
       log('Elegido (clásico): '+this.name+' · '+this.id);
       await P.addListener('data',ev=>onData(ev&&ev.value||''));
-      await P.addListener('disconnected',()=>{log('Evento disconnected (clásico): el adaptador cortó la conexión');onDrop()});
+      await P.addListener('disconnected',ev=>{S.dropReason=(ev&&ev.reason)||'sin motivo';log('Evento disconnected (clásico): '+S.dropReason);onDrop()});
       log('Abriendo socket Bluetooth clásico (SPP)…');
       await P.connect({address:this.id});
       this.svc='SPP clásico';log('Socket SPP abierto');
@@ -929,7 +929,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 async function connectWith(transport,mode){
   stopPoll();await sleep(80);await REC.stop();
   if(elm.t)elm.t.close();
-  S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;S.rep={};S.snap={};S.alertSt={};resetTrip();
+  S.mode=mode;S.sup=new Set();S.vals={};S.hist={};S.stats={};S.dtc=null;S.mon=null;S.vin=null;S.rows=[];S.rec=false;S.rep={};S.snap={};S.alertSt={};
   setPill('busy','Conectando…');
   S.dropped=false;S.diag=[];dlog('Modo '+mode);
   const pairTimer=mode==='real'?setTimeout(()=>{dlog('Tardando: posible solicitud de emparejamiento pendiente');banner('<b>Esperando al adaptador…</b> Si Android pide un <b>código de emparejamiento</b>, ingrésalo (prueba <b>1234</b>; otros comunes: 0000, 6789). Mira también la barra de notificaciones: a veces la solicitud aparece ahí.')},6000):null;
@@ -968,7 +968,8 @@ function onDrop(){
   if(S.mode!=='real')return;
   S.dropped=true;elm.abort();
   if(!elm.t)return;
-  dlog('Conexión perdida con la app ya conectada','er');
+  dlog('Conexión perdida con la app ya conectada'+(S.dropReason?' · motivo: '+S.dropReason:''),'er');
+  REC.event('desconexion',{motivo:S.dropReason||'desconocido',rpm:S.vals[0x0C],vel:S.vals[0x0D],bat:S.vals.BAT,activa:REC.s?Math.round((Date.now()-REC.s.start)/1000):null});S.dropReason=null;
   toIdle();diagBanner('Se perdió la conexión.',S.wantConn&&isNative()?'Se reintentará conectar automáticamente durante 10 minutos (cada 10 s, luego cada 30 s y luego cada 60 s), también en segundo plano.':'Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');scheduleReconnect();
 }
 
@@ -1216,10 +1217,12 @@ $('#cmdForm').onsubmit=async e=>{e.preventDefault();const c=$('#cmdIn').value.tr
 
 /* ---------- Viaje (calculado) ---------- */
 const T={d:0,t:0,idle:0,fuel:0,last:null,psp:null};
+Object.assign(T,ls.get('obd_trip',{}));
+if(Date.now()-ls.get('obd_trip_ts',0)>7200000){T.d=T.t=T.idle=T.fuel=0}
 const CAL=Object.assign({raw:0,km:0,start:Date.now(),saved:0},ls.get('obd_cal',{}));
 S.kcal=ls.get('obd_kcal',1);
 function fmtT(s){s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
-function resetTrip(){T.d=T.t=T.idle=T.fuel=0;T.last=null;T.psp=null;renderTrip()}
+function resetTrip(){T.d=T.t=T.idle=T.fuel=0;T.last=null;T.psp=null;ls.set('obd_trip',{d:0,t:0,idle:0,fuel:0});ls.set('obd_trip_ts',Date.now());if(REC.s)REC.t0={d:0,t:0,idle:0,fuel:0};renderTrip()}
 function updateTrip(){
   const now=Date.now(),dt=T.last?(now-T.last)/1000:0;T.last=now;
   const sp=S.vals[0x0D],rpm=S.vals[0x0C],lph=S.vals.LPH;
@@ -1227,7 +1230,7 @@ function updateTrip(){
   if(sp!=null){T.d+=sp*dt/3600;if(S.mode==='real')CAL.km+=sp*dt/3600;if(T.psp!=null)setVal('ACC',(sp-T.psp)/3.6/dt);T.psp=sp}
   if(rpm!=null&&rpm>400){T.t+=dt;if((sp||0)<2)T.idle+=dt}
   if(lph!=null){T.fuel+=lph*dt/3600;if(S.mode==='real')CAL.raw+=(S.lphRaw||0)*dt/3600}
-  if(now-CAL.saved>10000){CAL.saved=now;ls.set('obd_cal',{raw:CAL.raw,km:CAL.km,start:CAL.start})}
+  if(now-CAL.saved>10000){CAL.saved=now;ls.set('obd_cal',{raw:CAL.raw,km:CAL.km,start:CAL.start});ls.set('obd_trip',{d:T.d,t:T.t,idle:T.idle,fuel:T.fuel});ls.set('obd_trip_ts',now)}
   renderTrip();
 }
 function renderTrip(){
@@ -1430,11 +1433,11 @@ const DB={
 /* ---------- Grabador: cada conexión = una sesión con 1 fila por segundo ---------- */
 const ALERT_IDS=[0x05,0x06,0x07,'BAT',0x0C,0x3C];
 const REC={
-  s:null,buf:[],evbuf:[],lastRow:0,lastFlush:0,offSince:null,wasOn:false,sawOff:false,batBuf:[],alertT:{},
+  s:null,buf:[],evbuf:[],lastRow:0,lastFlush:0,offSince:null,wasOn:false,sawOff:false,batBuf:[],alertT:{},t0:{d:0,t:0,idle:0,fuel:0},
   async start(){
     if(S.mode==='demo'&&!ls.get('obd_rec_demo',false)){this.s=null;this.ui();return}
     this.s={id:Date.now(),start:Date.now(),last:Date.now(),vin:S.vin,mode:S.mode,proto:S.proto,n:0,alerts:0,bv:{sum:0,n:0,min:99},bo:{sum:0,n:0,min:99}};
-    this.buf=[];this.evbuf=[];this.lastRow=0;this.lastFlush=Date.now();this.offSince=null;this.wasOn=false;this.sawOff=false;this.batBuf=[];this.alertT={};
+    this.buf=[];this.evbuf=[];this.lastRow=0;this.lastFlush=Date.now();this.offSince=null;this.wasOn=false;this.sawOff=false;this.batBuf=[];this.alertT={};this.t0={d:T.d,t:T.t,idle:T.idle,fuel:T.fuel};
     hkT=Date.now();CQ.last={};S.fail={};S.unk={};
     if(S.mon)this.event('estado',{mil:S.mon.mil,count:S.mon.count,monitores:S.mon.list.map(m=>m.n+'='+(m.ok?'listo':'incompleto'))});
     try{await DB.putSession(this.s)}catch(e){this.s=null;dlog('Almacenamiento no disponible: '+e.message,'er')}
@@ -1472,7 +1475,7 @@ const REC={
   async flush(){
     const s=this.s;if(!s)return;
     this.lastFlush=Date.now();const rows=this.buf,ev=this.evbuf;this.buf=[];this.evbuf=[];
-    s.last=Date.now();s.vin=S.vin;s.trip={d:T.d,t:T.t,idle:T.idle,fuel:T.fuel};s.stats=JSON.parse(JSON.stringify(S.stats));
+    s.last=Date.now();s.vin=S.vin;s.trip={d:Math.max(0,T.d-this.t0.d),t:Math.max(0,T.t-this.t0.t),idle:Math.max(0,T.idle-this.t0.idle),fuel:Math.max(0,T.fuel-this.t0.fuel)};s.stats=JSON.parse(JSON.stringify(S.stats));
     s.log=S.clog.slice(-150);s.fail=S.fail;s.unk=S.unk;s.light=!!S.light;s.full=!!S.full;s.kcal=S.kcal;
     try{if(rows.length)await DB.addRows('samples',rows);if(ev.length)await DB.addRows('events',ev);await DB.putSession(s)}catch(e){dlog('Error guardando: '+e.message,'er')}
     this.ui();
@@ -1672,6 +1675,7 @@ function evText(e){
     case 'dtc':return 'Fallas leídas: '+Object.entries(d).map(([k,a])=>k+'='+(a?(a.length?a.map(c=>c+' ('+dtcInfo(c).d+')').join(', '):'ninguna'):'sin respuesta')).join('; ');
     case 'dtc_change':return 'Cambio en fallas: luz '+(d.mil?'encendida':'apagada')+', '+d.count+' código(s)';
     case 'estado':return 'Estado: luz '+(d.mil?'encendida':'apagada')+', '+d.count+' código(s) · '+(d.monitores||[]).join('; ');
+    case 'desconexion':return 'DESCONEXIÓN tras '+(d.activa!=null?fmtT(d.activa):'?')+' · motivo: '+d.motivo+' · '+(d.rpm!=null?Math.round(d.rpm)+' rpm':'')+(d.vel!=null?' · '+Math.round(d.vel)+' km/h':'')+(d.bat!=null?' · '+f1(d.bat,1)+' V':'');
     case 'arranque':return 'Arranque: voltaje mínimo '+f1(d.vmin,2)+' V (antes '+f1(d.vpre,2)+' V, después '+f1(d.vpost,2)+' V)';
     case 'adaptador':case 'ident':case 'freeze':case 'm06':return ({adaptador:'Adaptador',ident:'Identificación',freeze:'Datos congelados',m06:'Pruebas de monitoreo'})[e.type]+': '+(Array.isArray(d)&&d.length?d.map(r=>r.join(': ')).join('; ').slice(0,300):'sin datos');
     case 'modulos':return 'Módulos: '+(Array.isArray(d)&&d.length?d.map(m=>m.title).join(', '):'ninguno');

@@ -117,6 +117,7 @@ public class SppPlugin extends Plugin {
                         @Override
                         public void run() {
                             byte[] buf = new byte[512];
+                            String reason = "flujo cerrado por el adaptador";
                             try {
                                 while (open) {
                                     int n = in.read(buf);
@@ -127,11 +128,14 @@ public class SppPlugin extends Plugin {
                                         notifyListeners("data", o);
                                     }
                                 }
-                            } catch (Exception ignored) {
+                            } catch (Exception e) {
+                                reason = e.getClass().getSimpleName() + ": " + e.getMessage();
                             }
                             if (open) {
                                 open = false;
-                                notifyListeners("disconnected", new JSObject());
+                                JSObject d = new JSObject();
+                                d.put("reason", reason);
+                                notifyListeners("disconnected", d);
                             }
                         }
                     });
