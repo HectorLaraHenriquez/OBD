@@ -953,13 +953,13 @@ function onDrop(){
   S.dropped=true;elm.abort();
   if(!elm.t)return;
   dlog('Conexión perdida con la app ya conectada','er');
-  toIdle();diagBanner('Se perdió la conexión.',S.wantConn&&isNative()?'Se reintentará conectar automáticamente cada 10 s mientras la app siga abierta o en segundo plano.':'Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');scheduleReconnect();
+  toIdle();diagBanner('Se perdió la conexión.',S.wantConn&&isNative()?'Se reintentará conectar automáticamente durante 10 minutos (cada 10 s, luego cada 30 s y luego cada 60 s), también en segundo plano.':'Revisa que el auto siga en contacto y que el iCar2 siga enchufado. Vuelve a conectar.');scheduleReconnect();
 }
 
 $('#bConnect').onclick=async()=>{
   if(!isNative()&&!navigator.bluetooth){banner('<b>Este navegador no tiene Bluetooth web.</b> Abre esta página en Chrome para Android (con ubicación activada) desde su dirección web propia, no dentro de otra app. En iPhone usa el navegador Bluefy.',true);return}
   const tr=isNative()?new BleNative():new Ble();tr.all=$('#allDev').checked;ls.set('obd_all',tr.all);
-  try{await connectWith(tr,'real');S.wantConn=true;rcN=0;svcCtl(true)}
+  try{await connectWith(tr,'real');S.wantConn=true;rcN=0;rcT0=null;svcCtl(true)}
   catch(e){
     dlog('ERROR '+e.name+': '+e.message,'er');
     try{tr.close()}catch{}
@@ -1431,7 +1431,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)REC.flush()
 window.addEventListener('pagehide',()=>{REC.flush()});
 
 /* lectura de parámetros lentos (uno o dos por ciclo) y vigilancia de fallas cada 30 s */
-let slowI=0,hkT=0,rcTimer=null,rcN=0;
+let slowI=0,hkT=0,rcTimer=null,rcN=0,rcT0=null;
 const CQ={last:{}};
 S.full=ls.get('obd_full',true);
 try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch{}
@@ -1485,12 +1485,15 @@ function svcCtl(on){if(!isNative())return;try{plug('Spp')[on?'startService':'sto
 function scheduleReconnect(){
   clearTimeout(rcTimer);
   if(!S.wantConn||!isNative())return;
-  if(rcN>=60){S.wantConn=false;svcCtl(false);banner('<b>No se pudo reconectar automáticamente.</b> Toca <i>Conectar adaptador</i> cuando el auto esté en contacto.',true);return}
+  if(!rcT0)rcT0=Date.now();
+  const el=(Date.now()-rcT0)/1000;
+  if(el>=600){rcT0=null;S.wantConn=false;svcCtl(false);banner('<b>No se pudo reconectar automáticamente en 10 minutos.</b> Toca <i>Conectar adaptador</i> cuando el auto esté en contacto.',true);return}
+  const wait=el<120?10:el<360?30:60;
   rcTimer=setTimeout(async()=>{
-    if(!S.wantConn||elm.t)return;rcN++;dlog('Reconexión automática, intento '+rcN);
-    try{await connectWith(new BleNative(),'real');rcN=0;dlog('Reconectado')}
+    if(!S.wantConn||elm.t)return;rcN++;dlog('Reconexión automática, intento '+rcN+' (a los '+Math.round((Date.now()-rcT0)/1000)+' s)');
+    try{await connectWith(new BleNative(),'real');rcN=0;rcT0=null;dlog('Reconectado')}
     catch(e){dlog('Reintento falló: '+e.message,'er');try{toIdle()}catch{}scheduleReconnect()}
-  },10000);
+  },wait*1000);
 }
 $('#fullTrack').checked=S.full;
 $('#fullTrack').onchange=e=>{S.full=e.target.checked;ls.set('obd_full',S.full)};
