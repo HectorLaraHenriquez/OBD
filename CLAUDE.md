@@ -1,4 +1,4 @@
-# Tablero OBD — MG GT (contexto del proyecto)
+# Tablero OBD — multi-vehículo (contexto del proyecto)
 
 Documento de traspaso para continuar el desarrollo con Claude (Claude Code / Cowork) conectado a este repo.
 
@@ -38,6 +38,22 @@ Chrome no logró conectar con el iCar2 (el adaptador corta el GATT al descubrir 
 - En la app, exportar (informe, CSV, JSON) escribe un archivo en caché con `@capacitor/filesystem` y abre la hoja de compartir (`@capacitor/share`); si falla, comparte texto recortado.
 - Bluetooth: dispositivos vinculados en Android se conectan por Bluetooth clásico (SPP, plugin propio `android-src/SppPlugin.java`); los demás por BLE. Conexión automática al V-LINK vinculado; casilla "Elegir dispositivo" muestra la lista.
 - Instalar: descargar el APK en el teléfono y permitir "instalar apps desconocidas".
+
+## Vehículos (perfiles)
+
+La app ya no es solo para el MG GT. `VEHS` (localStorage `obd_vehs`) guarda perfiles con `id`, nombre, cilindrada (`disp`), estanque (`cap`), combustible (`g`/`d`), `vin` y `kml` (último consumo real). Preinstalados, con **valores aproximados que el usuario debe confirmar**: MG GT 1.5 (1,498 L / 45 L), Ford Explorer 2006 4.0 V6 (4,015 / 85), Nissan X-Trail 2019 2.5 (2,488 / 60), Haval H6 1.5T (1,497 / 58).
+- Vehículo activo en `obd_veh`; cambiarlo desconecta y recarga la página (`vehSwitch`).
+- Datos por vehículo con `vs.get/set` (clave `k@id`; el MG usa las claves antiguas sin sufijo): `obd_kcal`, `obd_cal`, `obd_fl`, `obd_fm`, `obd_trip`, `obd_trip_ts`, `obd_watch`, `obd_tank`, `obd_fills`.
+- Cada sesión grabada lleva `veh`/`vehN`; Tendencias filtra por el vehículo activo; Historial muestra todos con su nombre.
+- `vehVin()`: al conectar guarda el VIN en el perfil o avisa si el VIN no coincide con el vehículo elegido.
+- Modo 06 y sondeo de módulos solo en CAN (autos con protocolo antiguo los omiten).
+
+## Combustible (rediseño)
+
+- **Ralentí vs movimiento:** `T.fi` acumula litros con el auto detenido; En vivo muestra promedio total y "en movimiento". Un km/L bajo en viajes con mucha espera es real (el motor gasta sin avanzar), no un error.
+- **Registro de cargas** (`FILLS`, `obd_fills`; panel "Combustible" en En vivo): litros, lleno/parcial, odómetro opcional. Entre dos llenados: consumo real = km de odómetro / litros (se guarda en `VEH.kml`), y factor `kcal = litros × cobertura / CAL.raw` si la app midió ≥30 km y ≥70 % de los km del tramo (promedia con el factor anterior). Evento `carga` en el viaje.
+- **Estanque calculado** (`TANK.l`, `obd_tank`): lleno = capacidad; se descuenta el consumo estimado; cargas parciales suman. Alimenta `FLP`/`FLV`/`RNG` cuando el auto no reporta el PID `2F` (`S.tankSrc` = `sensor` o `calc`). No descuenta lo conducido sin la app.
+- Diésel: AFR 14,5, densidad 832, sin trims; estimación poco fiable sin PID `5E`.
 
 ## Arquitectura de `index.html`
 
