@@ -1,4 +1,4 @@
-# Tablero OBD — MG GT (contexto del proyecto)
+# Tablero OBD — multi-vehículo (contexto del proyecto)
 
 Documento de traspaso para continuar el desarrollo con Claude (Claude Code / Cowork) conectado a este repo.
 
@@ -27,6 +27,33 @@ Chrome en Android soporta **Web Bluetooth** solo para BLE, lo que calza con el i
 - `CLAUDE.md` — este documento.
 - `CAPACIDADES.md` — qué datos se pueden extraer del auto y cuáles no.
 - `OLD/` — versiones anteriores de `index.html`.
+- `package.json`, `capacitor.config.json`, `ci/debug.keystore`, `.github/workflows/android.yml` — empaquetado de la app Android (ver más abajo).
+
+## App Android (Capacitor)
+
+Chrome no logró conectar con el iCar2 (el adaptador corta el GATT al descubrir servicios). Se empaqueta el mismo `index.html` como app Android con Capacitor y el plugin `@capacitor-community/bluetooth-le` (`class BleNative`, se usa solo dentro de la app; en navegador se usa `class Ble`).
+- GitHub Actions (`android.yml`) copia `index.html` a `www/`, genera `android/` (`cap add android`), compila el APK de depuración y lo publica en el release `apk-latest`: `https://github.com/HectorLaraHenriquez/OBD/releases/tag/apk-latest`.
+- `ci/debug.keystore` es una llave **solo de depuración** (contraseña `android`) para que cada APK se instale como actualización sin desinstalar. No usar para publicar en Play Store.
+- Segundo plano: al conectar, `SppPlugin.startService` levanta `ObdService` (servicio en primer plano tipo `connectedDevice`, notificación y wake lock parcial); permisos y registro del servicio los agrega el workflow al `AndroidManifest.xml`. Si la conexión cae, la app reintenta durante 10 min con espera creciente: cada 10 s los primeros 2 min, cada 30 s hasta los 6 min y cada 60 s después (`scheduleReconnect`). Para uso prolongado conviene desactivar la optimización de batería de la app en Android.
+- En la app, exportar (informe, CSV, JSON) escribe un archivo en caché con `@capacitor/filesystem` y abre la hoja de compartir (`@capacitor/share`); si falla, comparte texto recortado.
+- Bluetooth: dispositivos vinculados en Android se conectan por Bluetooth clásico (SPP, plugin propio `android-src/SppPlugin.java`); los demás por BLE. Conexión automática al V-LINK vinculado; casilla "Elegir dispositivo" muestra la lista.
+- Instalar: descargar el APK en el teléfono y permitir "instalar apps desconocidas".
+
+## Vehículos (perfiles)
+
+La app ya no es solo para el MG GT. `VEHS` (localStorage `obd_vehs`) guarda perfiles con `id`, nombre, cilindrada (`disp`), estanque (`cap`), combustible (`g`/`d`), `vin` y `kml` (último consumo real). Preinstalados, con **valores aproximados que el usuario debe confirmar**: MG GT 1.5 (1,498 L / 45 L), Ford Explorer 2006 4.0 V6 (4,015 / 85), Nissan X-Trail 2019 2.5 (2,488 / 60), Haval H6 1.5T (1,497 / 58).
+- Vehículo activo en `obd_veh`; cambiarlo desconecta y recarga la página (`vehSwitch`).
+- Datos por vehículo con `vs.get/set` (clave `k@id`; el MG usa las claves antiguas sin sufijo): `obd_kcal`, `obd_cal`, `obd_fl`, `obd_fm`, `obd_trip`, `obd_trip_ts`, `obd_watch`, `obd_tank`, `obd_fills`.
+- Cada sesión grabada lleva `veh`/`vehN`; Tendencias filtra por el vehículo activo; Historial muestra todos con su nombre.
+- `vehVin()`: al conectar guarda el VIN en el perfil o avisa si el VIN no coincide con el vehículo elegido.
+- Modo 06 y sondeo de módulos solo en CAN (autos con protocolo antiguo los omiten).
+
+## Combustible (rediseño)
+
+- **Ralentí vs movimiento:** `T.fi` acumula litros con el auto detenido; En vivo muestra promedio total y "en movimiento". Un km/L bajo en viajes con mucha espera es real (el motor gasta sin avanzar), no un error.
+- **Registro de cargas** (`FILLS`, `obd_fills`; panel "Combustible" en En vivo): litros, lleno/parcial, odómetro opcional. Entre dos llenados: consumo real = km de odómetro / litros (se guarda en `VEH.kml`), y factor `kcal = litros × cobertura / CAL.raw` si la app midió ≥30 km y ≥70 % de los km del tramo (promedia con el factor anterior). Evento `carga` en el viaje.
+- **Estanque calculado** (`TANK.l`, `obd_tank`): lleno = capacidad; se descuenta el consumo estimado; cargas parciales suman. Alimenta `FLP`/`FLV`/`RNG` cuando el auto no reporta el PID `2F` (`S.tankSrc` = `sensor` o `calc`). No descuenta lo conducido sin la app.
+- Diésel: AFR 14,5, densidad 832, sin trims; estimación poco fiable sin PID `5E`.
 
 ## Arquitectura de `index.html`
 
@@ -53,15 +80,22 @@ Nombre en español, categoría, unidad y fórmula de decodificación para ~40 PI
 ### Valores calculados (`VIRT`)
 - `BAT`: voltaje con `ATRV` (lo mide el adaptador).
 - `LPH` consumo L/h: usa PID `5E` si existe; si no, MAF (`10`); si no, **speed-density** con MAP (`0B`), RPM (`0C`) e IAT (`0F`): eficiencia volumétrica 0,85, cilindrada 1,498 L, AFR 14,7, densidad gasolina 745 g/L. El MG GT 1.5 probablemente no tiene MAF.
-- `KML` rendimiento: velocidad / L/h (solo sobre 3 km/h).
+- **Métodos de aire** (`computeVirtual`): prioridad `5E` (consumo directo) > MAF `10` > **carga del motor** (`ld`: aire = carga/100 · 1,498 L · RPM/120 · 1,184 g/L con `0x43`, o `0x04`×0,9; usa las tablas del propio computador del auto) > speed-density (`sd`, VE fija 0,85, tiende a sobrestimar). Selector `obd_fm` (auto/ld/sd). Ambas estimaciones se graban siempre como `LSD` y `LLD` (L/h con trims, lambda y corte, sin factor) para compararlas con consumos reales. `S.fmStable` = método estable ≥20 s (solo entonces se acumula la calibración).
+- **Tarjetas de combustible en el estanque** (`FLP` %, `FLV` litros = % × capacidad `obd_cap`, `RNG` autonomía = litros × km/L promedio del viaje cuando hay >3 km): usan el PID `2F` (solo aparecen si el auto lo reporta), mediana de las últimas 9 lecturas (`S.lvlBuf`); el nivel se lee también en modo liviano (`housekeeping`, 1 consulta cada 30/60 s). Migración única agrega las tarjetas a un tablero guardado (`obd_mig_fuel`). La burbuja muestra litros y autonomía.
+- **Verificación por nivel** (`flUpdate`/`flSuggest`): usa el PID `2F` (nivel de combustible, mediana de las últimas 9 lecturas) y la capacidad del estanque (`obd_cap`, 45 L por defecto, editable): si el nivel baja ≥8 % en ≥10 km, calcula consumo real ≈ y sugiere un factor (botón "Aplicar"). Se reinicia al detectar recarga (nivel sube >4 %) o cambio de método.
+- Mejoras: aire / (14,7·λ comandado `0x44` si existe) · (1 + ajustes corto+largo plazo `06`/`07`, tope ±25 %); **corte de inyección** estimado (`CUT`: pie fuera del acelerador según `49`/`5A`/`45`/`11`, RPM > 1400 y velocidad > 8) cuenta consumo 0; EMA 0,7/0,3 sobre L/h para `KML`; **factor de calibración** `S.kcal` (localStorage `obd_kcal`, no aplica si el consumo viene del PID `5E`).
+- Calibración con el estanque (panel "Calibrar consumo" en En vivo): acumula litros estimados sin calibrar (`CAL.raw`) y km (`CAL.km`) entre llenados (`obd_cal`); al finalizar `kcal = litros reales / CAL.raw` (acotado 0,5–1,8, mínimo 20 km).
+- `KML` rendimiento: velocidad / L/h suavizado (solo sobre 3 km/h, tope 40).
 
 ### UI (pestañas)
-1. **En vivo:** computador de viaje (distancia, tiempo, ralentí, combustible, costo con precio editable, aceleración calculada); VIN, protocolo, check engine, n.º de fallas; tarjetas con valor, mín/máx de la sesión y sparkline (canvas, últimas 120 lecturas). Estados de alerta: refrigerante >99 °C aviso, >105 °C crítico; fuel trims >10 % aviso, >20 % crítico; voltaje según motor encendido/apagado.
+1. **En vivo:** computador de viaje persistente (`obd_trip`: no se reinicia al reconectar; se reinicia con el botón o tras 2 h sin datos; cada sesión grabada guarda solo su parte) (distancia, tiempo, ralentí, combustible, costo con precio editable, aceleración calculada); VIN, protocolo, check engine, n.º de fallas; tarjetas con valor, mín/máx de la sesión y sparkline (canvas, últimas 120 lecturas). Estados de alerta: refrigerante >99 °C aviso, >105 °C crítico; fuel trims >10 % aviso, >20 % crítico; voltaje según motor encendido/apagado.
 2. **Datos disponibles:** PIDs soportados agrupados, botón "Leer todos una vez", casillas para elegir medidores (se guardan en `localStorage`, clave `obd_watch`), y lista de PIDs que el auto no reporta.
-3. **Fallas:** códigos con descripción (diccionario `DTC_DB` de ~50 códigos genéricos) y severidad; borrado (`04`) con confirmación en dos pasos; monitores de emisiones.
+3. **Fallas:** códigos con descripción (diccionario `DTC_DB` de ~240 códigos genéricos P/U/C) y severidad; borrado (`04`) con confirmación en dos pasos; monitores de emisiones.
 4. **Registro:** grabar viaje y exportar CSV; "Resumen para IA" (texto para pegar en Claude con VIN, fallas, monitores y min/prom/máx de cada parámetro).
 5. **Escáner:** escaneo completo de solo lectura: adaptador, modo 09 (VIN/calibración/CVN), modo 02 (datos congelados), modo 06 (autopruebas), sondeo de módulos por UDS (`3E00`, `22 F1xx`, `19 02`) rápido (7E0–7E7, 7A0–7BF) o ampliado (700–7DE). Informe descargable `.txt` (usa el resumen para IA).
-6. **Consola:** comandos ELM327 directos; pausa la lectura en vivo.
+6. **Historial:** grabación automática de cada conexión (`REC`, IndexedDB `obd_tracker`: `sessions`, `samples` 1 fila/s con todos los valores, `events` de alertas/fallas/estado). Lista de viajes, detalle con 8 gráficos por grupo, hallazgos automáticos (`flagsFor`), exportación CSV/JSON/resumen para IA y exportación total. Lectura "completa": además del tablero lee 2 PIDs lentos por ciclo (`slowRead`); cada 30 s revisa `0101` y lee fallas si cambian (`housekeeping`). Pausa filas si el motor lleva >10 min apagado. Chequeos automáticos dentro del ciclo de lectura (`checkups`, uno por vuelta): adaptador (3 s), identificación modo 09 (6 s), fallas 03/07/0A (9 s y cada 5 min), datos congelados (15 s, cada 15 min y cuando aparecen fallas), modo 06 (25 s y cada 20 min), estado/monitores (cada 5 min). Se guardan como `events` del viaje, igual que los resultados manuales del Escáner. PIDs que el auto reporta pero la app no conoce se graban como `x<PID>` (valor crudo) y su hex en `session.unk`. `session.log` guarda los últimos 150 comandos y `session.fail` cuenta lecturas sin respuesta. Evento `arranque` con el voltaje mínimo al encender (batería). Evento `desconexion` con motivo (excepción del socket SPP), RPM, velocidad y voltaje al momento del corte. Demo solo se graba con `localStorage.obd_rec_demo`. **Modo liviano** (`obd_light`): sin PIDs lentos ni chequeos automáticos, `0101` cada 60 s; el estado se guarda en `session.light`. **Burbuja flotante** (`obd_bubble`, solo app Android): panel superpuesto con velocidad, RPM, temperatura, voltaje, km/L y promedio del viaje; borde naranja/rojo si hay alertas; aparece al salir de la app (`SppPlugin.handleOnPause`), se arrastra y al tocarla abre la app; requiere el permiso "Mostrar sobre otras apps" (`SYSTEM_ALERT_WINDOW`, agregado por el workflow).
+7. **Tendencias:** totales y gráficos por viaje (km/L, km, ajuste largo plazo, voltaje, temperatura máx, ralentí), hallazgos y resumen global para IA.
+8. **Consola:** comandos ELM327 directos; pausa la lectura en vivo.
 
 Diseño: tokens CSS, dark-first con tema claro, fuentes Barlow Condensed / IBM Plex Sans / IBM Plex Mono, responsive para móvil.
 

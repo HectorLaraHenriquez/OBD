@@ -1,0 +1,6 @@
+{
+  "appId": "cl.hector.tablero.obd",
+  "appName": "Tablero OBD",
+  "webDir": "www",
+  "android": { "backgroundColor": "#11151b" }
+}
